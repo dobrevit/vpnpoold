@@ -1,0 +1,93 @@
+version: 1
+
+runtime:
+  state_dir: /run/vpnpoold-local/state
+  run_dir: /run/vpnpoold-local/runtime
+  log_level: info
+  log_format: json
+  cleanup_stale_resources: true
+
+openvpn:
+  binary: /usr/sbin/openvpn
+  profiles_dir: /run/vpnpoold-local/profiles
+  connect_timeout: 45s
+  restart_min_backoff: 1s
+  restart_max_backoff: 15s
+  crash_loop_window: 2m
+  crash_loop_limit: 8
+
+network:
+  namespace_prefix: vpnlocal
+  subnet: 10.242.0.0/24
+  worker_prefix_length: 30
+  host_uplink_interface: enp1s0
+  tunnel_interface: tun0
+  dns_servers:
+    - 1.1.1.1
+  disable_ipv6_when_unavailable: true
+
+proxy:
+  listen: 127.0.0.1:1080
+  worker_port: 1081
+  handshake_timeout: 10s
+  connect_timeout: 15s
+  idle_timeout: 2m
+  max_connect_attempts: 0
+  authentication:
+    enabled: false
+    users_file: ""
+  allow_insecure_public_listener: false
+  balancing:
+    mode: round_robin
+    uniqueness_enforced: true
+    session_separator: /
+
+metrics:
+  enabled: true
+  listen: 127.0.0.1:9090
+
+health:
+  interval: 10s
+  timeout: 8s
+  failure_threshold: 1
+  success_threshold: 1
+  ip_check_url: http://10.250.0.1:8080/ip
+  expected_response_format: plain_text
+  json_field: ""
+  host_public_ips:
+    - 203.0.113.254
+
+workers:
+  - id: local-1
+    config: user1.ovpn
+    credentials_file: /run/vpnpoold-local/credentials/user1
+    management:
+      username_password: true
+      private_key_password_file: ""
+      challenge_response_command: /usr/local/libexec/vpnpoold-test-challenge-helper
+      challenge_timeout: 5s
+    upstream_http_proxy: ""
+    enabled: true
+    expected_public_ip: 198.51.100.10
+    weight: 1
+  - id: local-2
+    config: user2.ovpn
+    credentials_file: /run/vpnpoold-local/credentials/user2
+    upstream_http_proxy: ""
+    enabled: true
+    expected_public_ip: 198.51.100.11
+    weight: 1
+  - id: local-3
+    config: user3.ovpn
+    credentials_file: /run/vpnpoold-local/credentials/user3
+    upstream_http_proxy: ""
+    enabled: true
+    expected_public_ip: 198.51.100.12
+    weight: 1
+  - id: local-4
+    config: user4.ovpn
+    credentials_file: /run/vpnpoold-local/credentials/user4
+    upstream_http_proxy: ""
+    enabled: true
+    expected_public_ip: 198.51.100.13
+    weight: 1

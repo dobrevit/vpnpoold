@@ -1,0 +1,67 @@
+version: 1
+
+runtime:
+  state_dir: /run/vpnpoold-e2e/state
+  run_dir: /run/vpnpoold-e2e/runtime
+  log_level: info
+  log_format: json
+  cleanup_stale_resources: true
+
+openvpn:
+  binary: /usr/sbin/openvpn
+  profiles_dir: /run/vpnpoold-e2e/profiles
+  connect_timeout: 60s
+  restart_min_backoff: 1s
+  restart_max_backoff: 15s
+  crash_loop_window: 2m
+  crash_loop_limit: 5
+
+network:
+  namespace_prefix: vpne2e
+  subnet: 10.241.0.0/24
+  worker_prefix_length: 30
+  host_uplink_interface: enp1s0
+  tunnel_interface: tun0
+  dns_servers:
+    - 1.1.1.1
+    - 8.8.8.8
+  disable_ipv6_when_unavailable: true
+
+proxy:
+  listen: 127.0.0.1:1080
+  worker_port: 1081
+  handshake_timeout: 10s
+  connect_timeout: 15s
+  idle_timeout: 2m
+  max_connect_attempts: 0
+  authentication:
+    enabled: false
+    users_file: ""
+  allow_insecure_public_listener: false
+  balancing:
+    mode: least_connections
+    uniqueness_enforced: true
+    session_separator: /
+
+metrics:
+  enabled: true
+  listen: 127.0.0.1:9090
+
+health:
+  interval: 10s
+  timeout: 8s
+  failure_threshold: 1
+  success_threshold: 1
+  ip_check_url: https://ifconfig.me/ip
+  expected_response_format: plain_text
+  json_field: ""
+  host_public_ips: []
+
+workers:
+  - id: live-test
+    config: test.ovpn
+    credentials_file: /run/vpnpoold-e2e/credentials
+    upstream_http_proxy: 192.168.1.1:3128
+    enabled: true
+    expected_public_ip: ""
+    weight: 1

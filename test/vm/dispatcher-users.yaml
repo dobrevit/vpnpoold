@@ -1,0 +1,6 @@
+users:
+  # Test-only password: vpnpoold-test-password
+  alice:
+    password_hash: "$2b$10$B1DBYFdCu4e9Y.mX4y3CAOG3r/6cC8urro2r6LvWQySaQoS4dH2Qi"
+  bob:
+    password_hash: "$2b$10$B1DBYFdCu4e9Y.mX4y3CAOG3r/6cC8urro2r6LvWQySaQoS4dH2Qi"

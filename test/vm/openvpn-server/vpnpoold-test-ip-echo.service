@@ -1,0 +1,18 @@
+[Unit]
+Description=vpnpoold deterministic VPN-side IP echo
+Requires=openvpn-server@server.service
+After=openvpn-server@server.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/libexec/vpnpoold-test-ip-echo
+Restart=on-failure
+RestartSec=1s
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+RestrictAddressFamilies=AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

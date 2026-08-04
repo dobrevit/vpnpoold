@@ -1,0 +1,51 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Format
+        run: test -z "$(gofmt -l .)"
+      - name: Script syntax
+        run: |
+          find deploy test -type f -name '*.sh' -exec sh -n {} +
+          python3 - <<'PY'
+          import ast
+          import pathlib
+          for path in pathlib.Path("test").rglob("*.py"):
+              ast.parse(path.read_text(), filename=str(path))
+          PY
+      - name: Unit tests
+        run: go test ./...
+      - name: Race tests
+        run: go test -race ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Reachable vulnerability scan
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.3.0 ./...
+      - name: Build
+        run: make build
+      - name: Install layout smoke test
+        run: |
+          destination="$(mktemp -d)"
+          DESTDIR="$destination" ./deploy/install.sh ./vpnpoold
+          test -x "$destination/usr/local/sbin/vpnpoold"
+          test -f "$destination/etc/systemd/system/vpnpoold.service"
+      - name: Release archives
+        run: SOURCE_DATE_EPOCH=1704067200 ./deploy/package.sh 0.0.0-ci ./dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-release-smoke
+          path: dist/

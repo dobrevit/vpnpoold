@@ -1,0 +1,54 @@
+[Unit]
+Description=OpenVPN isolated egress pool
+Documentation=file:/usr/local/share/doc/vpnpoold/README.md
+Wants=network-online.target
+After=network-online.target systemd-tmpfiles-setup.service
+ConditionPathExists=/etc/vpnpoold/vpnpoold.yaml
+
+[Service]
+Type=simple
+ExecStartPre=/usr/local/sbin/vpnpoold validate-host
+ExecStartPre=/usr/local/sbin/vpnpoold validate --config /etc/vpnpoold/vpnpoold.yaml
+ExecStart=/usr/local/sbin/vpnpoold daemon --config /etc/vpnpoold/vpnpoold.yaml
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=2s
+TimeoutStopSec=30s
+# Signal only the daemon on an ordinary stop so it can install strict worker
+# firewalls and terminate children in order. Kill any remaining cgroup
+# processes after TimeoutStopSec.
+KillMode=mixed
+RuntimeDirectory=vpnpoold
+RuntimeDirectoryMode=0700
+StateDirectory=vpnpoold
+StateDirectoryMode=0750
+UMask=0077
+LimitNOFILE=65536
+
+# Named network namespaces require mount-namespace operations in addition to
+# network administration. Revisit this set after target-host integration tests.
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_SYS_ADMIN
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_SYS_ADMIN
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectProc=invisible
+ReadWritePaths=/run/netns /run/vpnpoold /var/lib/vpnpoold /etc/netns
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+RestrictNamespaces=mnt net
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
+SystemCallFilter=~@clock @cpu-emulation @debug @module @obsolete @raw-io @reboot @swap
+MemoryDenyWriteExecute=yes
+LockPersonality=yes
+RestrictRealtime=yes
+
+[Install]
+WantedBy=multi-user.target

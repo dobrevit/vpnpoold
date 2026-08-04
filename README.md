@@ -1,0 +1,207 @@
+# vpnpoold
+
+`vpnpoold` is a Linux-only daemon under active development. It runs each
+OpenVPN client profile in a separate network namespace and exposes the healthy
+exits through one host-side SOCKS5 dispatcher.
+
+The current implementation is a stable-MVP release candidate:
+
+- strict YAML configuration loading and validation;
+- secure loopback listener defaults;
+- a no-shell external process runner;
+- structured JSON or text logging with sensitive-key redaction;
+- a race-safe, fail-closed worker state model;
+- deterministic namespace/veth address allocation and command orchestration;
+- transactional namespace and host nftables rule generation;
+- a runnable namespace-side SOCKS5 TCP `CONNECT` worker;
+- host-side endpoint resolution, private credential-file injection, and
+  full-tunnel derived OpenVPN profiles;
+- namespace-specific DNS and optional in-tunnel upstream HTTP CONNECT proxies;
+- private OpenVPN management sockets with hold/state lifecycle synchronization;
+- on-demand management-channel username/password, private-key password,
+  static challenge, dynamic challenge, and `CR_TEXT` responses;
+- explicit worker-proxy listener readiness before egress verification;
+- supervised namespace/OpenVPN/proxy worker controllers;
+- public-IP, expected-IP, host-leak, and uniqueness verification;
+- a host SOCKS5 dispatcher with balancing and optional authentication;
+- coordinated stale-resource cleanup and shutdown;
+- a host-network-namespace singleton guard for the global firewall owner;
+- a private Unix control socket, human-readable and JSON status, transactional
+  reload, and enable/disable/drain/restart controls;
+- loopback-only Prometheus metrics with bounded worker labels;
+- versioned Linux release archives and atomic, rollback-capable upgrades;
+- `vpnpoold validate`, `validate-host`, `version`, `daemon`, `status`,
+  `reload`, and `worker-proxy`.
+
+The unprivileged test suite passes. The root-only namespace and strict
+kill-switch integration test also passes in the disposable Ubuntu 24.04
+libvirt guest documented in `test/vm/README.md`. The four-worker local
+acceptance matrix, authentication and balancing modes, failure recovery,
+transactional reload, soak, crash cleanup, install/upgrade, and clean-boot
+recovery have also passed there. Operators must still validate the release on
+their target distribution and VPN provider before production use.
+
+## Build and validate
+
+Go 1.26 or newer is required by the current module:
+
+```sh
+go build ./cmd/vpnpoold
+./vpnpoold version
+./vpnpoold validate --config /etc/vpnpoold/vpnpoold.yaml
+./vpnpoold validate-host
+```
+
+Copy `configs/vpnpoold.example.yaml` to the path above, replace the IP-check
+URL with an endpoint you control or trust, set the actual host uplink name, and
+place the referenced `.ovpn` profiles in the configured profile directory.
+Profiles and secret files must be private, regular, non-symlink files in
+directories that group and other users cannot modify. Validation checks the
+OpenVPN executable and every referenced profile without modifying profile
+content.
+
+The example health URL is intentionally not a working default.
+
+Run the daemon as root after validation:
+
+```sh
+sudo install -d -m 0755 /etc/netns
+sudo ./vpnpoold daemon --config /etc/vpnpoold/vpnpoold.yaml
+```
+
+From another root shell, inspect lifecycle and availability state. The default
+is a compact table; use `-format json` for automation:
+
+```sh
+sudo ./vpnpoold status --config /etc/vpnpoold/vpnpoold.yaml
+sudo ./vpnpoold status -format json --config /etc/vpnpoold/vpnpoold.yaml
+```
+
+When enabled, Prometheus metrics are available only on the configured loopback
+listener:
+
+```sh
+curl --fail http://127.0.0.1:9090/metrics
+```
+
+See `docs/observability.md` for the metric catalogue and suggested alerts.
+
+The daemon control socket is `${runtime.run_dir}/control.sock`, is mode `0600`,
+and accepts bounded status, reload, and worker lifecycle operations:
+
+```sh
+sudo ./vpnpoold worker disable --config /etc/vpnpoold/vpnpoold.yaml france-1
+sudo ./vpnpoold worker enable --config /etc/vpnpoold/vpnpoold.yaml france-1
+sudo ./vpnpoold worker drain --config /etc/vpnpoold/vpnpoold.yaml france-1
+sudo ./vpnpoold worker undrain --config /etc/vpnpoold/vpnpoold.yaml france-1
+sudo ./vpnpoold worker restart --config /etc/vpnpoold/vpnpoold.yaml france-1
+sudo ./vpnpoold reload --config /etc/vpnpoold/vpnpoold.yaml
+```
+
+The reload command or `SIGHUP` transactionally reloads configuration. The candidate is
+fully loaded, resolved, and derived while the old generation remains active.
+If privileged activation or listener acquisition fails, the exact retained
+generation is restored.
+
+The daemon resolves OpenVPN remote hostnames on the host, writes mode-`0600`
+derived profiles under `runtime.run_dir`, and never modifies source `.ovpn`
+files. The current host bootstrap/NAT topology requires at least one IPv4
+OpenVPN endpoint for every `remote`. `<connection>` blocks are preserved, with
+each remote replaced in place only by addresses resolved for that directive.
+Derived profiles enforce complete IPv4 `def1` routes. A worker may reference a
+private `credentials_file`, and environments that require an in-tunnel proxy
+may set `upstream_http_proxy` to an explicit IP address and port.
+
+For providers that prompt through the OpenVPN management channel, a worker can
+read username/password and private-key passwords only when requested.
+Static/dynamic OTP and `CR_TEXT` prompts can call a trusted, absolute helper
+executable. The helper receives bounded JSON on standard input and returns one
+response line; it is invoked directly with a minimal environment and timeout.
+Neither credentials nor raw management protocol messages are logged.
+
+## Security status
+
+The public SOCKS listener defaults to `127.0.0.1:1080`. Configuration validation
+rejects any non-loopback listener unless authentication is enabled or the
+operator explicitly opts into `allow_insecure_public_listener`.
+
+No worker is selectable until namespace,
+veth, OpenVPN, tunnel, route, proxy, test request, public-IP, expected-IP, and
+uniqueness evidence is complete. Configure `health.host_public_ips` with every
+known direct host egress address so matching verification results are rejected
+as leaks. When the list is empty, startup performs a direct, environment-proxy-
+independent request to `health.ip_check_url` and records the observed host IP.
+
+## Implementation status
+
+Completed and unit-tested:
+
+- Milestone 1: strict configuration, transactional generation reload, logging,
+  process runner/starter, state machine, backoff, and validation CLI.
+- Milestone 2 primitives: deterministic addressing, namespace/veth lifecycle,
+  rollback/idempotent cleanup, host prerequisite validation, and atomic
+  namespace/host nftables rule generation.
+- Milestone 3 worker: SOCKS5 TCP `CONNECT`, namespace-local domain resolution,
+  optional upstream HTTP CONNECT, counters, deadlines, half-closes,
+  cancellation, and graceful shutdown.
+- Milestone 4 primitives: secret-safe remote inspection/resolution, direct
+  OpenVPN launch, management `CONNECTED,SUCCESS` synchronization, tunnel
+  probing supervision, graceful/forced termination, restart backoff, and
+  crash-loop detection.
+- Milestone 5 primitives: worker-routed HTTP public-IP checks, plain/JSON
+  parsing, public-address validation, expected-IP, host-leak, duplicate-IP, and
+  change detection.
+- Milestone 6: bcrypt client authentication, weighted round robin,
+  least-connections and rendezvous hashing, atomic health/drain rechecks,
+  pre-acknowledgement retry, connection pinning, failure-driven worker removal,
+  and termination of sessions belonging to a failed worker.
+- Worker controller: ordered namespace/firewall/VPN/proxy startup, asynchronous
+  egress verification, health scheduling, generation-safe stale-result
+  rejection, proxy-only recovery, VPN restart on egress failure, immediate
+  dispatcher withdrawal/session termination, and idempotent shutdown.
+- Daemon composition: pre-mutation profile validation and endpoint resolution,
+  private derived profiles, exact stale cleanup, shared host firewall,
+  singleton ownership, dispatcher startup, concurrent worker ownership, signal
+  cancellation, and teardown.
+- Milestone 7 status slice: private Unix listener, bounded JSON protocol,
+  refusal to replace non-socket paths, detailed worker/dispatcher counters,
+  table/JSON status CLI, enable/disable/drain/undrain/restart actions,
+  loopback-only Prometheus metrics, and transactional command/SIGHUP reload
+  with rollback.
+- Management authentication: on-demand username/password and encrypted-key
+  credentials plus static, dynamic, and modern text challenge helpers, all
+  with bounded input/output, timeouts, minimal environments, and secret-safe
+  errors.
+- Release engineering: embedded version metadata, deterministic Linux
+  `amd64`/`arm64` archives, checksums, atomic install/upgrade with rollback,
+  schema-version policy, CI, hardened systemd unit, tmpfiles integration, and
+  clean-reboot recovery.
+- Ongoing supervision: dynamic direct-host IP refresh and controller-level
+  restart with bounded backoff.
+- Real-profile validation: username/password authentication, TLS negotiation,
+  tunnel addressing, pushed routes, management lifecycle synchronization,
+  enforced full-tunnel routes, worker-proxy readiness, public-IP verification
+  through the in-tunnel Squid proxy, and dispatcher egress have been exercised
+  successfully in the disposable VM.
+
+Privileged validation:
+
+- the root-only namespace/strict-kill-switch integration test passes on Ubuntu
+  24.04 with iproute2 6.1 and nftables 1.0.9. See `docs/testing.md` for the
+  exact opt-in command and disposable-VM harness;
+- the four-worker local OpenVPN acceptance test passes authenticated
+  least-connections and rendezvous modes, control operations, invalid and
+  valid reloads, management username/password and OTP, held-session
+  termination, proxy/OpenVPN failure injection, strict firewall/no-fallback,
+  soak, hard daemon termination, stale cleanup, and final cleanup;
+- archive installation, in-place restart upgrade, hardened systemd operation,
+  and clean-boot recovery to exactly four workers pass in the disposable VM.
+
+Deferred/incomplete:
+
+- UDP ASSOCIATE, HTTP CONNECT, transparent routing, packet bonding, dashboard,
+  remote API, dynamic upload, clustering, certificate automation, and
+  container orchestration.
+
+See `docs/security-review.md` for the focused review evidence and residual
+risks. This is an internal engineering review, not an independent audit.

@@ -1,0 +1,11 @@
+# Temporary/private OpenVPN material must never enter source control.
+/*.ovpn
+/ovpn-credentials
+/.local/
+
+# Local build and release artifacts.
+/vpnpoold
+/dist/
+
+# Local bootstrap note; repository guidance lives in AGENTS.md.
+/HANDOFF.md

@@ -1,0 +1,86 @@
+version: 1
+
+runtime:
+  state_dir: /var/lib/vpnpoold
+  run_dir: /run/vpnpoold
+  log_level: info
+  log_format: json
+  cleanup_stale_resources: true
+
+openvpn:
+  binary: /usr/sbin/openvpn
+  profiles_dir: /etc/vpnpoold/profiles
+  connect_timeout: 45s
+  restart_min_backoff: 1s
+  restart_max_backoff: 60s
+  crash_loop_window: 5m
+  crash_loop_limit: 10
+
+network:
+  namespace_prefix: vpnpool
+  subnet: 10.231.0.0/16
+  worker_prefix_length: 30
+  host_uplink_interface: eth0
+  tunnel_interface: tun0
+  # Namespace-specific resolvers. Queries remain blocked until tun0 is ready.
+  dns_servers:
+    - 1.1.1.1
+    - 8.8.8.8
+  disable_ipv6_when_unavailable: true
+
+proxy:
+  listen: 127.0.0.1:1080
+  worker_port: 1081
+  handshake_timeout: 10s
+  connect_timeout: 15s
+  idle_timeout: 5m
+  # Zero tries each eligible worker at most once, only before CONNECT success.
+  max_connect_attempts: 0
+  authentication:
+    enabled: false
+    users_file: /etc/vpnpoold/users.yaml
+  allow_insecure_public_listener: false
+  balancing:
+    mode: least_connections
+    uniqueness_enforced: true
+    session_separator: /
+
+metrics:
+  enabled: true
+  # Metrics are intentionally restricted to an IP-literal loopback listener.
+  listen: 127.0.0.1:9090
+
+health:
+  interval: 10s
+  timeout: 5s
+  # Fail-closed operation requires immediate withdrawal on the first failure.
+  failure_threshold: 1
+  success_threshold: 2
+  ip_check_url: https://your-ip-echo.example.com/ip
+  expected_response_format: plain_text
+  json_field: ""
+  # Direct host egress addresses that must never be accepted as VPN results.
+  # An empty list triggers direct discovery during daemon startup.
+  host_public_ips: []
+
+workers:
+  - id: france-1
+    config: france-1.ovpn
+    # Optional. Must be an absolute, private regular file (normally 0600).
+    # The source profile must contain an auth-user-pass directive.
+    credentials_file: ""
+    management:
+      # When true, credentials_file is read by vpnpoold only when OpenVPN asks.
+      username_password: false
+      # Optional one-line private-key password file, normally mode 0600.
+      private_key_password_file: ""
+      # Optional absolute, non-writable executable for static/dynamic/CR_TEXT
+      # responses. It receives bounded JSON on stdin and returns one line.
+      challenge_response_command: ""
+      # Zero uses the 30-second default.
+      challenge_timeout: 0s
+    # Optional in-tunnel HTTP CONNECT proxy, as an IP literal and port.
+    upstream_http_proxy: ""
+    enabled: true
+    expected_public_ip: ""
+    weight: 1

@@ -1,0 +1,5 @@
+users:
+  # Generate a bcrypt hash with cost 10 or greater. Never store plaintext.
+  # Install the real file with mode 0600.
+  alice:
+    password_hash: "$2a$12$replace-with-a-bcrypt-hash"

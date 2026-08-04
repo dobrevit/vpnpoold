@@ -44,9 +44,13 @@ func (v *PublicIPVerifier) Verify(ctx context.Context) (Verification, error) {
 		return Verification{}, err
 	}
 	return Verification{
-		PublicIP:          result.ObservedIP,
-		ExpectedIPMatches: true,
-		PublicIPUnique:    true,
+		PublicIP:             result.ObservedIP,
+		ExpectedIPConfigured: result.ExpectedIPConfigured,
+		ExpectedIPChecked:    result.ExpectedIPChecked,
+		ExpectedIPMatches:    result.ExpectedIPMatches,
+		UniquenessEnforced:   result.UniquenessEnforced,
+		UniquenessChecked:    result.UniquenessChecked,
+		PublicIPUnique:       result.PublicIPUnique,
 	}, nil
 }
 

@@ -8,17 +8,12 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"syscall"
 	"time"
 
+	"github.com/dobrevit/vpnpoold/internal/netutil"
 	"github.com/dobrevit/vpnpoold/internal/process"
-)
-
-var (
-	controllerNamespacePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
-	controllerWorkerIDPattern  = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$`)
 )
 
 type WorkerProxyLauncher struct {
@@ -91,10 +86,10 @@ func (l WorkerProxyLauncher) validate() error {
 	if !filepath.IsAbs(l.IPBinary) || !filepath.IsAbs(l.DaemonBinary) {
 		return errors.New("ip and daemon binary paths must be absolute")
 	}
-	if !controllerNamespacePattern.MatchString(l.Namespace) {
+	if !netutil.IsValidNamespaceName(l.Namespace) {
 		return errors.New("namespace name is invalid")
 	}
-	if !controllerWorkerIDPattern.MatchString(l.WorkerID) {
+	if !netutil.IsValidWorkerID(l.WorkerID) {
 		return errors.New("worker ID is invalid")
 	}
 	host, portText, err := net.SplitHostPort(l.ListenAddress)

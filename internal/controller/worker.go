@@ -51,6 +51,12 @@ type verificationResult struct {
 	err          error
 }
 
+type proxyStartResult struct {
+	epoch   uint64
+	runtime *proxyRuntime
+	err     error
+}
+
 func NewWorker(spec WorkerSpec, dependencies Dependencies) (*Worker, error) {
 	if spec.ID == "" || spec.ID != spec.Allocation.WorkerID ||
 		spec.ID != spec.Candidate.ID {
@@ -109,10 +115,14 @@ func (w *Worker) Run(ctx context.Context) (runErr error) {
 	defer w.endRun()
 	created := false
 	var proxy *proxyRuntime
+	var cancelProxyStart context.CancelFunc
+	proxyStarting := false
 	var cancelVPN context.CancelFunc
 	var vpnDone <-chan error
 	defer func() {
-		cleanupErr := w.shutdown(created, &proxy, cancelVPN, vpnDone)
+		cleanupErr := w.shutdown(
+			created, &proxy, &cancelProxyStart, &proxyStarting, cancelVPN, vpnDone,
+		)
 		runErr = errors.Join(runErr, cleanupErr)
 	}()
 
@@ -151,9 +161,11 @@ func (w *Worker) Run(ctx context.Context) (runErr error) {
 	}
 
 	var vpnReady bool
+	vpnGeneration := uint64(1)
 	var epoch uint64
 	var verificationEpoch uint64
 	healthResults := make(chan verificationResult, 1)
+	proxyStartResults := make(chan proxyStartResult, 1)
 	healthTicker := time.NewTicker(w.spec.HealthInterval)
 	defer healthTicker.Stop()
 	var retryTimer *time.Timer
@@ -185,8 +197,12 @@ func (w *Worker) Run(ctx context.Context) (runErr error) {
 			verifyContext, cancel := context.WithTimeout(ctx, w.spec.HealthTimeout)
 			defer cancel()
 			verification, err := w.deps.Verifier.Verify(verifyContext)
-			healthResults <- verificationResult{
+			result := verificationResult{
 				epoch: currentEpoch, verification: verification, err: err,
+			}
+			select {
+			case healthResults <- result:
+			case <-ctx.Done():
 			}
 		}()
 	}
@@ -201,24 +217,36 @@ func (w *Worker) Run(ctx context.Context) (runErr error) {
 		if err := w.deps.Firewall.Apply(ctx, w.spec.Allocation.Namespace, activeRules); err != nil {
 			return fmt.Errorf("worker %q install active firewall: %w", w.spec.ID, err)
 		}
-		proxyContext, cancelProxy := context.WithCancel(context.Background())
-		running, err := w.deps.StartProxy(proxyContext)
-		if err != nil {
-			cancelProxy()
-			return fmt.Errorf("worker %q start proxy: %w", w.spec.ID, err)
-		}
-		done := make(chan error, 1)
-		go func() {
-			done <- running.Wait()
-		}()
-		proxy = &proxyRuntime{process: running, cancel: cancelProxy, done: done}
-		successfulVerifications = 0
 		epoch++
-		verificationEpoch = 0
-		if err := w.transition(workermodel.StateVerifyingEgress, "verifying worker egress", nil); err != nil {
-			return err
-		}
-		startVerification()
+		startEpoch := epoch
+		proxyContext, cancelProxy := context.WithCancel(ctx)
+		cancelProxyStart = cancelProxy
+		proxyStarting = true
+		go func() {
+			running, err := w.deps.StartProxy(proxyContext)
+			var runtime *proxyRuntime
+			if err == nil && running == nil {
+				err = errors.New("proxy starter returned no process")
+			}
+			if err == nil {
+				done := make(chan error, 1)
+				go func() {
+					done <- running.Wait()
+				}()
+				runtime = &proxyRuntime{process: running, cancel: cancelProxy, done: done}
+			} else {
+				cancelProxy()
+				err = fmt.Errorf("worker %q start proxy: %w", w.spec.ID, err)
+			}
+			result := proxyStartResult{epoch: startEpoch, runtime: runtime, err: err}
+			select {
+			case proxyStartResults <- result:
+			case <-ctx.Done():
+				if runtime != nil {
+					_ = stopManaged(runtime, w.spec.StopTimeout)
+				}
+			}
+		}()
 		return nil
 	}
 
@@ -256,10 +284,13 @@ func (w *Worker) Run(ctx context.Context) (runErr error) {
 				command.result <- nil
 			case commandRestart:
 				vpnReady = false
-				err := w.deactivate(&proxy, &epoch, "operator requested restart")
+				err := w.deactivate(
+					&proxy, &cancelProxyStart, &proxyStarting, &epoch,
+					"operator requested restart",
+				)
 				if err == nil {
 					w.deps.Model.RecordOpenVPNRestart()
-					w.deps.VPN.Restart()
+					vpnGeneration = w.deps.VPN.Restart()
 					err = w.moveToWaitingForTunnel()
 				}
 				command.result <- err
@@ -271,6 +302,9 @@ func (w *Worker) Run(ctx context.Context) (runErr error) {
 			}
 
 		case event := <-vpnEvents:
+			if event.Generation != vpnGeneration {
+				continue
+			}
 			switch event.Type {
 			case VPNTunnelReady:
 				if vpnReady {
@@ -278,9 +312,11 @@ func (w *Worker) Run(ctx context.Context) (runErr error) {
 				}
 				vpnReady = true
 				proxyFailures = 0
-				if proxy == nil {
+				if proxy == nil && !proxyStarting {
 					if err := startProxy(); err != nil {
-						if deactivateErr := w.deactivate(&proxy, &epoch, err.Error()); deactivateErr != nil {
+						if deactivateErr := w.deactivate(
+							&proxy, &cancelProxyStart, &proxyStarting, &epoch, err.Error(),
+						); deactivateErr != nil {
 							return errors.Join(err, deactivateErr)
 						}
 						if err := scheduleProxyRestart(); err != nil {
@@ -294,11 +330,14 @@ func (w *Worker) Run(ctx context.Context) (runErr error) {
 				// that cycle even if this worker was already withdrawn by an
 				// earlier failed generation and needs no repeated teardown.
 				w.deps.Model.RecordOpenVPNRestart()
-				if !vpnReady && proxy == nil {
+				if !vpnReady && proxy == nil && !proxyStarting {
 					continue
 				}
 				vpnReady = false
-				if err := w.deactivate(&proxy, &epoch, "OpenVPN or tunnel failed"); err != nil {
+				if err := w.deactivate(
+					&proxy, &cancelProxyStart, &proxyStarting, &epoch,
+					"OpenVPN or tunnel failed",
+				); err != nil {
 					return errors.Join(event.Err, err)
 				}
 				if err := w.moveToWaitingForTunnel(); err != nil {
@@ -309,7 +348,10 @@ func (w *Worker) Run(ctx context.Context) (runErr error) {
 		case err := <-vpnDoneChannel:
 			vpnDone = nil
 			vpnReady = false
-			if deactivateErr := w.deactivate(&proxy, &epoch, "OpenVPN supervisor stopped"); deactivateErr != nil {
+			if deactivateErr := w.deactivate(
+				&proxy, &cancelProxyStart, &proxyStarting, &epoch,
+				"OpenVPN supervisor stopped",
+			); deactivateErr != nil {
 				err = errors.Join(err, deactivateErr)
 			}
 			_ = w.transition(workermodel.StateFailed, "OpenVPN supervisor failed", nil)
@@ -318,10 +360,40 @@ func (w *Worker) Run(ctx context.Context) (runErr error) {
 			}
 			return fmt.Errorf("worker %q OpenVPN supervisor: %w", w.spec.ID, err)
 
+		case result := <-proxyStartResults:
+			if result.epoch != epoch || !proxyStarting || !vpnReady {
+				if result.runtime != nil {
+					_ = stopManaged(result.runtime, w.spec.StopTimeout)
+				}
+				continue
+			}
+			proxyStarting = false
+			cancelProxyStart = nil
+			if result.err != nil {
+				if deactivateErr := w.deactivate(
+					&proxy, &cancelProxyStart, &proxyStarting, &epoch, result.err.Error(),
+				); deactivateErr != nil {
+					return errors.Join(result.err, deactivateErr)
+				}
+				if err := scheduleProxyRestart(); err != nil {
+					return err
+				}
+				continue
+			}
+			proxy = result.runtime
+			successfulVerifications = 0
+			verificationEpoch = 0
+			if err := w.transition(workermodel.StateVerifyingEgress, "verifying worker egress", nil); err != nil {
+				return err
+			}
+			startVerification()
+
 		case err := <-proxyDone:
 			proxy.cancel()
 			proxy = nil
-			if deactivateErr := w.deactivate(&proxy, &epoch, "worker proxy exited"); deactivateErr != nil {
+			if deactivateErr := w.deactivate(
+				&proxy, &cancelProxyStart, &proxyStarting, &epoch, "worker proxy exited",
+			); deactivateErr != nil {
 				return errors.Join(err, deactivateErr)
 			}
 			if !vpnReady {
@@ -337,11 +409,13 @@ func (w *Worker) Run(ctx context.Context) (runErr error) {
 		case <-retryChannel:
 			retryChannel = nil
 			retryTimer = nil
-			if !vpnReady || proxy != nil {
+			if !vpnReady || proxy != nil || proxyStarting {
 				continue
 			}
 			if err := startProxy(); err != nil {
-				if deactivateErr := w.deactivate(&proxy, &epoch, err.Error()); deactivateErr != nil {
+				if deactivateErr := w.deactivate(
+					&proxy, &cancelProxyStart, &proxyStarting, &epoch, err.Error(),
+				); deactivateErr != nil {
 					return errors.Join(err, deactivateErr)
 				}
 				if err := scheduleProxyRestart(); err != nil {
@@ -358,11 +432,14 @@ func (w *Worker) Run(ctx context.Context) (runErr error) {
 				w.deps.Model.RecordHealthCheck(false)
 				successfulVerifications = 0
 				vpnReady = false
-				if err := w.deactivate(&proxy, &epoch, "egress verification failed"); err != nil {
+				if err := w.deactivate(
+					&proxy, &cancelProxyStart, &proxyStarting, &epoch,
+					"egress verification failed",
+				); err != nil {
 					return errors.Join(result.err, err)
 				}
 				w.deps.Model.RecordOpenVPNRestart()
-				w.deps.VPN.Restart()
+				vpnGeneration = w.deps.VPN.Restart()
 				if err := w.moveToWaitingForTunnel(); err != nil {
 					return err
 				}
@@ -375,7 +452,10 @@ func (w *Worker) Run(ctx context.Context) (runErr error) {
 					continue
 				}
 				if err := w.publishHealthy(result.verification); err != nil {
-					if deactivateErr := w.deactivate(&proxy, &epoch, "health publication failed"); deactivateErr != nil {
+					if deactivateErr := w.deactivate(
+						&proxy, &cancelProxyStart, &proxyStarting, &epoch,
+						"health publication failed",
+					); deactivateErr != nil {
 						return errors.Join(err, deactivateErr)
 					}
 					return err
@@ -404,7 +484,11 @@ func (w *Worker) publishHealthy(verification Verification) error {
 		ProxyReachable:       true,
 		TestRequestSucceeded: true,
 		PublicIP:             verification.PublicIP,
+		ExpectedIPConfigured: verification.ExpectedIPConfigured,
+		ExpectedIPChecked:    verification.ExpectedIPChecked,
 		ExpectedIPMatches:    verification.ExpectedIPMatches,
+		UniquenessEnforced:   verification.UniquenessEnforced,
+		UniquenessChecked:    verification.UniquenessChecked,
 		PublicIPUnique:       verification.PublicIPUnique,
 	}
 	if err := w.transition(workermodel.StateHealthy, "complete egress verification succeeded", &evidence); err != nil {
@@ -478,10 +562,21 @@ func (w *Worker) endRun() {
 	}
 }
 
-func (w *Worker) deactivate(proxy **proxyRuntime, epoch *uint64, reason string) error {
+func (w *Worker) deactivate(
+	proxy **proxyRuntime,
+	cancelProxyStart *context.CancelFunc,
+	proxyStarting *bool,
+	epoch *uint64,
+	reason string,
+) error {
 	w.deps.Publisher.SetHealthy(w.spec.ID, false)
 	w.deps.Sessions.CloseWorkerSessions(w.spec.ID)
 	w.deps.Verifier.Withdraw()
+	if *cancelProxyStart != nil {
+		(*cancelProxyStart)()
+		*cancelProxyStart = nil
+	}
+	*proxyStarting = false
 	*epoch++
 
 	state := w.deps.Model.Snapshot().State
@@ -545,6 +640,8 @@ func (w *Worker) transition(
 func (w *Worker) shutdown(
 	namespaceCreated bool,
 	proxy **proxyRuntime,
+	cancelProxyStart *context.CancelFunc,
+	proxyStarting *bool,
 	cancelVPN context.CancelFunc,
 	vpnDone <-chan error,
 ) error {
@@ -567,6 +664,11 @@ func (w *Worker) shutdown(
 		}
 		cancelFirewall()
 	}
+	if *cancelProxyStart != nil {
+		(*cancelProxyStart)()
+		*cancelProxyStart = nil
+	}
+	*proxyStarting = false
 	if *proxy != nil {
 		if err := stopManaged(*proxy, w.spec.StopTimeout); err != nil {
 			problems = append(problems, err)

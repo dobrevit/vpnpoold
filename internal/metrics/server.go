@@ -97,6 +97,42 @@ func writeMetrics(output io.Writer, snapshots []worker.Snapshot, stats dispatche
 	for _, snapshot := range snapshots {
 		writeWorkerMetric(output, "vpnpool_worker_draining", snapshot.ID, boolFloat(snapshot.Draining))
 	}
+	evidenceMetrics := []struct {
+		name string
+		help string
+		get  func(worker.HealthEvidence) bool
+	}{
+		{
+			"vpnpool_worker_expected_ip_configured",
+			"Whether expected-public-IP verification is configured for a worker.",
+			func(evidence worker.HealthEvidence) bool { return evidence.ExpectedIPConfigured },
+		},
+		{
+			"vpnpool_worker_expected_ip_verified",
+			"Whether the configured expected public IP was checked and matched.",
+			func(evidence worker.HealthEvidence) bool {
+				return evidence.ExpectedIPChecked && evidence.ExpectedIPMatches
+			},
+		},
+		{
+			"vpnpool_worker_uniqueness_enforced",
+			"Whether public-IP uniqueness verification is enforced for a worker.",
+			func(evidence worker.HealthEvidence) bool { return evidence.UniquenessEnforced },
+		},
+		{
+			"vpnpool_worker_public_ip_unique",
+			"Whether the worker public IP was checked and found unique.",
+			func(evidence worker.HealthEvidence) bool {
+				return evidence.UniquenessChecked && evidence.PublicIPUnique
+			},
+		},
+	}
+	for _, metric := range evidenceMetrics {
+		writeType(output, metric.name, "gauge", metric.help)
+		for _, snapshot := range snapshots {
+			writeWorkerMetric(output, metric.name, snapshot.ID, boolFloat(metric.get(snapshot.Evidence)))
+		}
+	}
 	writeType(output, "vpnpool_worker_state", "gauge",
 		"The current worker lifecycle state.")
 	for _, snapshot := range snapshots {

@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"sync"
 
 	"github.com/dobrevit/vpnpoold/internal/openvpn"
 )
@@ -14,7 +15,10 @@ type SupervisorFactory func() *openvpn.Supervisor
 // fresh one; readiness is never carried across generations.
 type SupervisorService struct {
 	Factory SupervisorFactory
-	restart chan struct{}
+
+	mu             sync.Mutex
+	nextGeneration uint64
+	restart        chan uint64
 }
 
 func NewSupervisorService(factory SupervisorFactory) (*SupervisorService, error) {
@@ -22,35 +26,52 @@ func NewSupervisorService(factory SupervisorFactory) (*SupervisorService, error)
 		return nil, errors.New("OpenVPN supervisor factory is required")
 	}
 	return &SupervisorService{
-		Factory: factory,
-		restart: make(chan struct{}, 1),
+		Factory:        factory,
+		nextGeneration: 1,
+		restart:        make(chan uint64, 1),
 	}, nil
 }
 
-func (s *SupervisorService) Restart() {
+func (s *SupervisorService) Restart() uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.nextGeneration++
+	generation := s.nextGeneration
 	select {
-	case s.restart <- struct{}{}:
+	case s.restart <- generation:
 	default:
+		// Coalesce pending restart requests, but preserve the newest generation.
+		select {
+		case <-s.restart:
+		default:
+		}
+		select {
+		case s.restart <- generation:
+		default:
+		}
 	}
+	return generation
 }
 
 func (s *SupervisorService) Run(ctx context.Context, events chan<- VPNEvent) error {
 	if events == nil {
 		return errors.New("VPN event channel is required")
 	}
+	generation := uint64(1)
 	for {
 		supervisor := s.Factory()
 		if supervisor == nil {
 			return errors.New("OpenVPN supervisor factory returned nil")
 		}
 		generationContext, cancel := context.WithCancel(ctx)
+		currentGeneration := generation
 		supervisor.OnEvent = func(event openvpn.Event) {
 			var converted VPNEvent
 			switch event.Type {
 			case openvpn.EventTunnelReady:
-				converted = VPNEvent{Type: VPNTunnelReady}
+				converted = VPNEvent{Type: VPNTunnelReady, Generation: currentGeneration}
 			case openvpn.EventTunnelFailed, openvpn.EventProcessExited:
-				converted = VPNEvent{Type: VPNFailed, Err: event.Err}
+				converted = VPNEvent{Type: VPNFailed, Generation: currentGeneration, Err: event.Err}
 			default:
 				return
 			}
@@ -69,7 +90,7 @@ func (s *SupervisorService) Run(ctx context.Context, events chan<- VPNEvent) err
 			cancel()
 			<-done
 			return nil
-		case <-s.restart:
+		case generation = <-s.restart:
 			cancel()
 			<-done
 			continue

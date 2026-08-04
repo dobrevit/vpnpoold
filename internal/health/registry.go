@@ -13,9 +13,15 @@ type VerificationPolicy struct {
 }
 
 type VerificationResult struct {
-	ObservedIP netip.Addr
-	PreviousIP netip.Addr
-	Changed    bool
+	ObservedIP           netip.Addr
+	PreviousIP           netip.Addr
+	Changed              bool
+	ExpectedIPConfigured bool
+	ExpectedIPChecked    bool
+	ExpectedIPMatches    bool
+	UniquenessEnforced   bool
+	UniquenessChecked    bool
+	PublicIPUnique       bool
 }
 
 type Registry struct {
@@ -60,9 +66,15 @@ func (r *Registry) VerifyAndRecord(
 	previous := r.workers[workerID]
 	r.workers[workerID] = observed
 	return VerificationResult{
-		ObservedIP: observed,
-		PreviousIP: previous,
-		Changed:    previous.IsValid() && previous != observed,
+		ObservedIP:           observed,
+		PreviousIP:           previous,
+		Changed:              previous.IsValid() && previous != observed,
+		ExpectedIPConfigured: policy.ExpectedIP.IsValid(),
+		ExpectedIPChecked:    policy.ExpectedIP.IsValid(),
+		ExpectedIPMatches:    policy.ExpectedIP.IsValid(),
+		UniquenessEnforced:   policy.EnforceUniqueness,
+		UniquenessChecked:    policy.EnforceUniqueness,
+		PublicIPUnique:       policy.EnforceUniqueness,
 	}, nil
 }
 

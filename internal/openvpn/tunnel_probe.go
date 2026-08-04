@@ -6,15 +6,10 @@ import (
 	"fmt"
 	"net/netip"
 	"path/filepath"
-	"regexp"
 	"strings"
 
+	"github.com/dobrevit/vpnpoold/internal/netutil"
 	"github.com/dobrevit/vpnpoold/internal/process"
-)
-
-var (
-	probeNamespacePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,63}$`)
-	probeInterfacePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,15}$`)
 )
 
 type LinuxTunnelProbe struct {
@@ -61,8 +56,8 @@ func (p LinuxTunnelProbe) validate() error {
 	if !filepath.IsAbs(p.IPBinary) {
 		return errors.New("ip binary path must be absolute")
 	}
-	if !probeNamespacePattern.MatchString(p.Namespace) ||
-		!probeInterfacePattern.MatchString(p.TunnelInterface) {
+	if !netutil.IsValidNamespaceName(p.Namespace) ||
+		!netutil.IsValidInterfaceName(p.TunnelInterface) {
 		return errors.New("namespace or tunnel interface name is invalid")
 	}
 	if p.RoutePrefix != "" && p.RoutePrefix != "default" {

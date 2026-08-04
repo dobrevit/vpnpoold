@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/dobrevit/vpnpoold/internal/balance"
+	"github.com/dobrevit/vpnpoold/internal/proxy/relay"
 	"github.com/dobrevit/vpnpoold/internal/proxy/socks5"
 )
 
@@ -180,18 +181,9 @@ func (d *Dispatcher) Serve(ctx context.Context, listener net.Listener) error {
 				d.wait.Wait()
 				return nil
 			}
-			if isTemporaryAcceptError(err) {
-				temporaryDelay = nextAcceptDelay(temporaryDelay)
-				timer := time.NewTimer(temporaryDelay)
-				select {
-				case <-ctx.Done():
-					if !timer.Stop() {
-						<-timer.C
-					}
-					continue
-				case <-timer.C:
-					continue
-				}
+			if relay.IsTemporaryAcceptError(err) {
+				temporaryDelay, _ = relay.WaitAcceptRetry(ctx, temporaryDelay)
+				continue
 			}
 			d.closeAll()
 			d.wait.Wait()
@@ -208,26 +200,6 @@ func (d *Dispatcher) Serve(ctx context.Context, listener net.Listener) error {
 			}
 		}()
 	}
-}
-
-func isTemporaryAcceptError(err error) bool {
-	var temporary interface{ Temporary() bool }
-	return errors.As(err, &temporary) && temporary.Temporary()
-}
-
-func nextAcceptDelay(previous time.Duration) time.Duration {
-	const (
-		minimum = 5 * time.Millisecond
-		maximum = time.Second
-	)
-	if previous <= 0 {
-		return minimum
-	}
-	next := previous * 2
-	if next > maximum {
-		return maximum
-	}
-	return next
 }
 
 func (d *Dispatcher) ServeConn(parent context.Context, client net.Conn) error {
@@ -262,6 +234,9 @@ func (d *Dispatcher) ServeConn(parent context.Context, client net.Conn) error {
 	defer upstream.Close()
 	defer d.pool.Release(selected.ID)
 	d.workerCounters(selected.ID).connectionsTotal.Add(1)
+	session := &activeSession{workerID: selected.ID, client: client, upstream: upstream}
+	d.trackSession(session, true)
+	defer d.trackSession(session, false)
 
 	// This acknowledgement is the retry boundary. No subsequent error may
 	// select another worker for this client connection.
@@ -272,9 +247,6 @@ func (d *Dispatcher) ServeConn(parent context.Context, client net.Conn) error {
 		return err
 	}
 
-	session := &activeSession{workerID: selected.ID, client: client, upstream: upstream}
-	d.trackSession(session, true)
-	defer d.trackSession(session, false)
 	return d.relay(parent, selected.ID, client, upstream)
 }
 
@@ -379,7 +351,10 @@ func (d *Dispatcher) connect(
 		lastErr = connectErr
 		var replyErr *socks5.ReplyError
 		if errors.As(connectErr, &replyErr) {
-			lastReply = replyErr.Code
+			// The worker successfully carried the request and reported a
+			// destination failure. Trying another exit would duplicate the
+			// application attempt and violate the single-worker boundary.
+			return nil, balance.Candidate{}, replyErr.Code, connectErr
 		} else {
 			lastReply = socks5.ReplyGeneralFailure
 			if d.pool.ReportFailure(acquired.ID, acquired.Generation, connectErr) {
@@ -398,32 +373,10 @@ func (d *Dispatcher) connect(
 }
 
 func (d *Dispatcher) relay(parent context.Context, workerID string, client, upstream net.Conn) error {
-	ctx, cancel := context.WithCancel(parent)
-	defer cancel()
-	go func() {
-		<-ctx.Done()
-		_ = client.Close()
-		_ = upstream.Close()
-	}()
-
-	clientConn := deadlineConn{Conn: client, timeout: d.config.IdleTimeout}
-	upstreamConn := deadlineConn{Conn: upstream, timeout: d.config.IdleTimeout}
-	results := make(chan copyResult, 2)
-	go copyStream(results, "from_client", upstreamConn, clientConn)
-	go copyStream(results, "to_client", clientConn, upstreamConn)
-	first := <-results
-	d.recordBytes(workerID, first)
-	halfClose(first.direction, client, upstream)
-	second := <-results
-	d.recordBytes(workerID, second)
-	cancel()
-	if significantCopyError(first.err) {
-		return first.err
-	}
-	if significantCopyError(second.err) {
-		return second.err
-	}
-	return nil
+	return relay.Bidirectional(
+		parent, client, upstream, d.config.IdleTimeout,
+		func(result relay.Result) { d.recordBytes(workerID, result) },
+	)
 }
 
 func (d *Dispatcher) CloseWorkerSessions(workerID string) int {
@@ -583,68 +536,13 @@ func writeAuthenticationReply(writer io.Writer, success bool) error {
 	return err
 }
 
-type copyResult struct {
-	direction string
-	bytes     int64
-	err       error
-}
-
-func copyStream(results chan<- copyResult, direction string, destination io.Writer, source io.Reader) {
-	count, err := io.Copy(destination, source)
-	results <- copyResult{direction: direction, bytes: count, err: err}
-}
-
-func halfClose(direction string, client, upstream net.Conn) {
-	if direction == "from_client" {
-		if connection, ok := upstream.(interface{ CloseWrite() error }); ok {
-			_ = connection.CloseWrite()
-		}
-		if connection, ok := client.(interface{ CloseRead() error }); ok {
-			_ = connection.CloseRead()
-		}
-		return
-	}
-	if connection, ok := client.(interface{ CloseWrite() error }); ok {
-		_ = connection.CloseWrite()
-	}
-	if connection, ok := upstream.(interface{ CloseRead() error }); ok {
-		_ = connection.CloseRead()
-	}
-}
-
-func significantCopyError(err error) bool {
-	return err != nil &&
-		!errors.Is(err, net.ErrClosed) &&
-		!errors.Is(err, io.EOF) &&
-		!errors.Is(err, context.Canceled)
-}
-
-func (d *Dispatcher) recordBytes(workerID string, result copyResult) {
+func (d *Dispatcher) recordBytes(workerID string, result relay.Result) {
 	counters := d.workerCounters(workerID)
-	if result.direction == "from_client" {
-		d.bytesFromClients.Add(uint64(result.bytes))
-		counters.bytesFromClients.Add(uint64(result.bytes))
+	if result.Direction == relay.FromClient {
+		d.bytesFromClients.Add(uint64(result.Bytes))
+		counters.bytesFromClients.Add(uint64(result.Bytes))
 	} else {
-		d.bytesToClients.Add(uint64(result.bytes))
-		counters.bytesToClients.Add(uint64(result.bytes))
+		d.bytesToClients.Add(uint64(result.Bytes))
+		counters.bytesToClients.Add(uint64(result.Bytes))
 	}
-}
-
-type deadlineConn struct {
-	net.Conn
-	timeout time.Duration
-}
-
-func (c deadlineConn) Read(data []byte) (int, error) {
-	if err := c.Conn.SetReadDeadline(time.Now().Add(c.timeout)); err != nil {
-		return 0, err
-	}
-	return c.Conn.Read(data)
-}
-
-func (c deadlineConn) Write(data []byte) (int, error) {
-	if err := c.Conn.SetWriteDeadline(time.Now().Add(c.timeout)); err != nil {
-		return 0, err
-	}
-	return c.Conn.Write(data)
 }

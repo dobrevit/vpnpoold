@@ -402,6 +402,37 @@ func TestRuntimeEnableDisableStopsAndRestartsWorker(t *testing.T) {
 	}
 }
 
+func TestRuntimeDisablePreservesOperatorDrainIntent(t *testing.T) {
+	model, err := worker.NewModel("worker-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	model.SetDraining(true)
+	pool := dispatcher.NewRegistry()
+	if err := pool.Upsert(balance.Candidate{
+		ID: "worker-1", Address: "10.231.0.2:1081", Weight: 1,
+		Healthy: true, Draining: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	runtime := &Runtime{
+		workers: []controlledWorker{{
+			id: "worker-1", model: model, lifecycle: newControlledLifecycle(true),
+		}},
+		pool: pool,
+	}
+	if err := runtime.SetWorkerEnabled(context.Background(), "worker-1", false); err != nil {
+		t.Fatal(err)
+	}
+	if !model.Snapshot().Draining {
+		t.Fatal("disabling worker cleared model drain intent")
+	}
+	candidates := pool.Snapshot()
+	if len(candidates) != 1 || !candidates[0].Draining || candidates[0].Healthy {
+		t.Fatalf("disabled pool candidate = %+v", candidates)
+	}
+}
+
 func testDispatcher(t *testing.T) *dispatcher.Dispatcher {
 	t.Helper()
 	front, err := dispatcher.New(

@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/dobrevit/vpnpoold/internal/netutil"
 )
 
 type ResolverStore interface {
@@ -26,7 +28,7 @@ func NewOSResolverStore(root string) (*OSResolverStore, error) {
 }
 
 func (s *OSResolverStore) Configure(namespace string, servers []netip.Addr) (err error) {
-	if s == nil || !namespacePattern.MatchString(namespace) {
+	if s == nil || !netutil.IsValidNamespaceName(namespace) {
 		return errors.New("resolver store or namespace is invalid")
 	}
 	if len(servers) == 0 {
@@ -76,7 +78,7 @@ func (s *OSResolverStore) Configure(namespace string, servers []netip.Addr) (err
 }
 
 func (s *OSResolverStore) Delete(namespace string) error {
-	if s == nil || !namespacePattern.MatchString(namespace) {
+	if s == nil || !netutil.IsValidNamespaceName(namespace) {
 		return errors.New("resolver store or namespace is invalid")
 	}
 	directory := filepath.Join(s.root, namespace)

@@ -6,16 +6,10 @@ import (
 	"fmt"
 	"net/netip"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/dobrevit/vpnpoold/internal/netutil"
 	"github.com/dobrevit/vpnpoold/internal/process"
-)
-
-var (
-	namespacePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
-	interfacePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,15}$`)
 )
 
 type Manager struct {
@@ -213,13 +207,13 @@ func (m *Manager) linkExists(ctx context.Context, name string) (bool, error) {
 }
 
 func validateAllocation(allocation netutil.Allocation) error {
-	if allocation.WorkerID == "" {
-		return errors.New("worker ID must not be empty")
+	if !netutil.IsValidWorkerID(allocation.WorkerID) {
+		return errors.New("worker ID is invalid")
 	}
-	if !namespacePattern.MatchString(allocation.Namespace) {
+	if !netutil.IsValidNamespaceName(allocation.Namespace) {
 		return errors.New("namespace name is invalid")
 	}
-	if !interfacePattern.MatchString(allocation.HostVeth) || !interfacePattern.MatchString(allocation.NamespaceVeth) {
+	if !netutil.IsValidInterfaceName(allocation.HostVeth) || !netutil.IsValidInterfaceName(allocation.NamespaceVeth) {
 		return errors.New("veth interface name is invalid")
 	}
 	if !validWorkerAddress(allocation.Subnet, allocation.HostAddress) ||

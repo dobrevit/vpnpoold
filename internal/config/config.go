@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -100,6 +101,49 @@ type Worker struct {
 	Enabled           bool             `yaml:"enabled"`
 	ExpectedPublicIP  string           `yaml:"expected_public_ip"`
 	Weight            int              `yaml:"weight"`
+}
+
+// UnmarshalYAML keeps workers enabled by default. A missing enabled key must
+// not silently turn a configured VPN profile off. Because custom unmarshalling
+// bypasses yaml.Decoder.KnownFields for this node, validate its keys here too.
+func (w *Worker) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind != yaml.MappingNode {
+		return errors.New("worker must be a mapping")
+	}
+	workerFields := map[string]struct{}{
+		"id": {}, "config": {}, "credentials_file": {}, "management": {},
+		"upstream_http_proxy": {}, "enabled": {}, "expected_public_ip": {}, "weight": {},
+	}
+	managementFields := map[string]struct{}{
+		"username_password": {}, "private_key_password_file": {},
+		"challenge_response_command": {}, "challenge_timeout": {},
+	}
+	for index := 0; index < len(node.Content); index += 2 {
+		key, value := node.Content[index], node.Content[index+1]
+		if _, known := workerFields[key.Value]; !known {
+			return fmt.Errorf("field %s not found in type config.Worker", key.Value)
+		}
+		if key.Value == "management" {
+			if value.Kind != yaml.MappingNode {
+				return errors.New("worker management must be a mapping")
+			}
+			for child := 0; child < len(value.Content); child += 2 {
+				managementKey := value.Content[child]
+				if _, known := managementFields[managementKey.Value]; !known {
+					return fmt.Errorf(
+						"field %s not found in type config.WorkerManagement", managementKey.Value,
+					)
+				}
+			}
+		}
+	}
+	type plainWorker Worker
+	decoded := plainWorker{Enabled: true}
+	if err := node.Decode(&decoded); err != nil {
+		return err
+	}
+	*w = Worker(decoded)
+	return nil
 }
 
 type WorkerManagement struct {

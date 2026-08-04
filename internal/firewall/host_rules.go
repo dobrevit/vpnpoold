@@ -6,6 +6,8 @@ import (
 	"net/netip"
 	"sort"
 	"strings"
+
+	"github.com/dobrevit/vpnpoold/internal/netutil"
 )
 
 type HostRules struct {
@@ -20,7 +22,7 @@ func (r HostRules) Validate() error {
 		r.WorkerSubnet != r.WorkerSubnet.Masked() {
 		return errors.New("worker subnet must be a canonical IPv4 prefix")
 	}
-	if !interfaceNamePattern.MatchString(r.UplinkInterface) {
+	if !netutil.IsValidInterfaceName(r.UplinkInterface) {
 		return errors.New("uplink interface name is invalid")
 	}
 	if len(r.WorkerVeths) == 0 {
@@ -28,7 +30,7 @@ func (r HostRules) Validate() error {
 	}
 	seenVeths := make(map[string]struct{}, len(r.WorkerVeths))
 	for _, name := range r.WorkerVeths {
-		if !interfaceNamePattern.MatchString(name) {
+		if !netutil.IsValidInterfaceName(name) {
 			return fmt.Errorf("worker veth name %q is invalid", name)
 		}
 		if _, exists := seenVeths[name]; exists {

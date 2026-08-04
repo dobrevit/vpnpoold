@@ -4,9 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
-	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/dobrevit/vpnpoold/internal/netutil"
 )
 
 type Mode uint8
@@ -45,16 +46,14 @@ type WorkerRules struct {
 	OpenVPNEndpoints []Endpoint
 }
 
-var interfaceNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,15}$`)
-
 func (r WorkerRules) Validate() error {
 	if r.Mode != ModeBootstrap && r.Mode != ModeActive && r.Mode != ModeStrict {
 		return errors.New("firewall mode is invalid")
 	}
-	if !interfaceNamePattern.MatchString(r.VethInterface) {
+	if !netutil.IsValidInterfaceName(r.VethInterface) {
 		return errors.New("veth interface name is invalid")
 	}
-	if !interfaceNamePattern.MatchString(r.TunnelInterface) {
+	if !netutil.IsValidInterfaceName(r.TunnelInterface) {
 		return errors.New("tunnel interface name is invalid")
 	}
 	if !r.HostAddress.IsValid() || !r.HostAddress.Is4() {

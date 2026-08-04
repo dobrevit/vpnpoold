@@ -29,8 +29,9 @@ const (
 )
 
 type VPNEvent struct {
-	Type VPNEventType
-	Err  error
+	Type       VPNEventType
+	Generation uint64
+	Err        error
 }
 
 // VPNService emits VPNTunnelReady only when process, tunnel interface, and VPN
@@ -38,15 +39,19 @@ type VPNEvent struct {
 // a new readiness event.
 type VPNService interface {
 	Run(context.Context, chan<- VPNEvent) error
-	Restart()
+	Restart() uint64
 }
 
 type ProxyStartFunc func(context.Context) (process.ManagedProcess, error)
 
 type Verification struct {
-	PublicIP          netip.Addr
-	ExpectedIPMatches bool
-	PublicIPUnique    bool
+	PublicIP             netip.Addr
+	ExpectedIPConfigured bool
+	ExpectedIPChecked    bool
+	ExpectedIPMatches    bool
+	UniquenessEnforced   bool
+	UniquenessChecked    bool
+	PublicIPUnique       bool
 }
 
 // Verifier must reach the proxy listener and complete a real external request

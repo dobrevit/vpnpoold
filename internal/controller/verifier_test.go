@@ -24,7 +24,8 @@ func TestPublicIPVerifierAppliesRegistryPolicy(t *testing.T) {
 		t.Fatalf("Verify() error = %v", err)
 	}
 	if result.PublicIP.String() != "8.8.8.8" ||
-		!result.ExpectedIPMatches || !result.PublicIPUnique {
+		result.ExpectedIPConfigured || result.ExpectedIPChecked || result.ExpectedIPMatches ||
+		result.UniquenessEnforced || result.UniquenessChecked || result.PublicIPUnique {
 		t.Fatalf("verification = %+v", result)
 	}
 

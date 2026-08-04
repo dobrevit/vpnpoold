@@ -210,6 +210,57 @@ func TestWorkerOperatorRestartFailsClosed(t *testing.T) {
 	}
 }
 
+func TestWorkerIgnoresStaleReadyEventAfterRestart(t *testing.T) {
+	fixture := newWorkerFixture(t, time.Hour)
+	fixture.verifier.push(successfulVerification(), nil)
+	fixture.verifier.push(successfulVerification(), nil)
+	done := fixture.run()
+	fixture.vpn.ready(t)
+	fixture.vpn.emit(VPNEvent{Type: VPNTunnelReady})
+	fixture.publisher.waitForHealthy(t, 1)
+
+	commandContext, cancelCommand := context.WithTimeout(context.Background(), time.Second)
+	if err := fixture.worker.Restart(commandContext); err != nil {
+		cancelCommand()
+		t.Fatalf("Restart() error = %v", err)
+	}
+	cancelCommand()
+	fixture.actions.waitForCount(t, "firewall:strict", 1)
+
+	fixture.vpn.emit(VPNEvent{Type: VPNTunnelReady, Generation: 1})
+	time.Sleep(10 * time.Millisecond)
+	if got := fixture.actions.count("proxy:start"); got != 1 {
+		t.Fatalf("proxy starts after stale readiness = %d, want 1", got)
+	}
+	fixture.vpn.emit(VPNEvent{Type: VPNTunnelReady})
+	fixture.publisher.waitForHealthy(t, 1)
+
+	fixture.cancel()
+	if err := waitResult(t, done); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+}
+
+func TestWorkerProcessesTunnelFailureWhileProxyStartIsPending(t *testing.T) {
+	fixture := newWorkerFixture(t, time.Hour)
+	fixture.proxy.blockUntilCanceled = true
+	done := fixture.run()
+	fixture.vpn.ready(t)
+	fixture.vpn.emit(VPNEvent{Type: VPNTunnelReady})
+	fixture.actions.waitForCount(t, "proxy:start", 1)
+
+	fixture.vpn.emit(VPNEvent{Type: VPNFailed, Err: errors.New("tunnel failed during proxy readiness")})
+	fixture.actions.waitForCount(t, "firewall:strict", 1)
+	if state := fixture.model.Snapshot().State; state != worker.StateWaitingForTunnel {
+		t.Fatalf("state after tunnel failure = %s", state)
+	}
+
+	fixture.cancel()
+	if err := waitResult(t, done); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+}
+
 func TestWorkerEgressFailureRestartsVPN(t *testing.T) {
 	fixture := newWorkerFixture(t, 5*time.Millisecond)
 	fixture.verifier.push(successfulVerification(), nil)
@@ -354,9 +405,7 @@ func (f *workerFixture) run() <-chan error {
 
 func successfulVerification() Verification {
 	return Verification{
-		PublicIP:          netip.MustParseAddr("8.8.8.8"),
-		ExpectedIPMatches: true,
-		PublicIPUnique:    true,
+		PublicIP: netip.MustParseAddr("8.8.8.8"),
 	}
 }
 
@@ -459,15 +508,16 @@ func (f *fakeFirewall) Apply(_ context.Context, _ string, rules firewall.WorkerR
 }
 
 type fakeVPN struct {
-	actions  *actionLog
-	events   chan<- VPNEvent
-	started  chan struct{}
-	mu       sync.Mutex
-	restarts int
+	actions    *actionLog
+	events     chan<- VPNEvent
+	started    chan struct{}
+	mu         sync.Mutex
+	restarts   int
+	generation uint64
 }
 
 func newFakeVPN(actions *actionLog) *fakeVPN {
-	return &fakeVPN{actions: actions, started: make(chan struct{})}
+	return &fakeVPN{actions: actions, started: make(chan struct{}), generation: 1}
 }
 
 func (v *fakeVPN) Run(ctx context.Context, events chan<- VPNEvent) error {
@@ -481,11 +531,13 @@ func (v *fakeVPN) Run(ctx context.Context, events chan<- VPNEvent) error {
 	return nil
 }
 
-func (v *fakeVPN) Restart() {
+func (v *fakeVPN) Restart() uint64 {
 	v.actions.add("vpn:restart")
 	v.mu.Lock()
+	defer v.mu.Unlock()
 	v.restarts++
-	v.mu.Unlock()
+	v.generation++
+	return v.generation
 }
 
 func (v *fakeVPN) ready(t *testing.T) {
@@ -500,6 +552,9 @@ func (v *fakeVPN) ready(t *testing.T) {
 func (v *fakeVPN) emit(event VPNEvent) {
 	v.mu.Lock()
 	events := v.events
+	if event.Generation == 0 {
+		event.Generation = v.generation
+	}
 	v.mu.Unlock()
 	events <- event
 }
@@ -511,13 +566,18 @@ func (v *fakeVPN) restartCount() int {
 }
 
 type fakeProxyLauncher struct {
-	actions   *actionLog
-	mu        sync.Mutex
-	processes []*fakeProcess
+	actions            *actionLog
+	mu                 sync.Mutex
+	processes          []*fakeProcess
+	blockUntilCanceled bool
 }
 
-func (l *fakeProxyLauncher) Start(context.Context) (process.ManagedProcess, error) {
+func (l *fakeProxyLauncher) Start(ctx context.Context) (process.ManagedProcess, error) {
 	l.actions.add("proxy:start")
+	if l.blockUntilCanceled {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	running := newFakeProcess(100+len(l.processes), l.actions)

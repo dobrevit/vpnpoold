@@ -6,10 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
-	"regexp"
 )
-
-var resourcePrefixPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`)
 
 type Allocation struct {
 	Index            int
@@ -53,11 +50,11 @@ func (a *Allocator) Allocate(index int, workerID, namespacePrefix string) (Alloc
 	if index < 0 || uint64(index) >= a.capacity {
 		return Allocation{}, fmt.Errorf("worker index %d is outside allocator capacity %d", index, a.capacity)
 	}
-	if !resourcePrefixPattern.MatchString(namespacePrefix) {
+	if !IsValidResourcePrefix(namespacePrefix) {
 		return Allocation{}, errors.New("namespace prefix is invalid")
 	}
-	if workerID == "" {
-		return Allocation{}, errors.New("worker ID must not be empty")
+	if !IsValidWorkerID(workerID) {
+		return Allocation{}, errors.New("worker ID is invalid")
 	}
 
 	baseBytes := a.parent.Addr().As4()

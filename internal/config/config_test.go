@@ -46,6 +46,35 @@ func TestDecodeAppliesDefaultsAndRejectsUnknownFields(t *testing.T) {
 			t.Fatalf("Decode() error = %v", err)
 		}
 	})
+
+	t.Run("worker enabled defaults true", func(t *testing.T) {
+		cfg, err := Decode(strings.NewReader("version: 1\nworkers:\n  - id: worker-1\n"))
+		if err != nil {
+			t.Fatalf("Decode() error = %v", err)
+		}
+		if len(cfg.Workers) != 1 || !cfg.Workers[0].Enabled {
+			t.Fatalf("workers = %+v", cfg.Workers)
+		}
+	})
+
+	t.Run("worker can be explicitly disabled", func(t *testing.T) {
+		cfg, err := Decode(strings.NewReader(
+			"version: 1\nworkers:\n  - id: worker-1\n    enabled: false\n",
+		))
+		if err != nil {
+			t.Fatalf("Decode() error = %v", err)
+		}
+		if cfg.Workers[0].Enabled {
+			t.Fatalf("workers = %+v", cfg.Workers)
+		}
+	})
+
+	t.Run("unknown worker field", func(t *testing.T) {
+		_, err := Decode(strings.NewReader("version: 1\nworkers:\n  - id: worker-1\n    surprise: true\n"))
+		if err == nil || !strings.Contains(err.Error(), "field surprise not found") {
+			t.Fatalf("Decode() error = %v", err)
+		}
+	})
 }
 
 func TestValidate(t *testing.T) {
@@ -148,6 +177,9 @@ func TestValidate(t *testing.T) {
 				if err := os.Mkdir(directory, 0o770); err != nil {
 					t.Fatal(err)
 				}
+				if err := os.Chmod(directory, 0o770); err != nil {
+					t.Fatal(err)
+				}
 				path := filepath.Join(directory, "credentials")
 				if err := os.WriteFile(path, []byte("username\npassword\n"), 0o600); err != nil {
 					t.Fatal(err)
@@ -192,6 +224,9 @@ func TestValidate(t *testing.T) {
 			mutate: func(cfg *Config, files *testFiles) {
 				helper := filepath.Join(files.root, "otp-helper")
 				if err := os.WriteFile(helper, []byte("#!/bin/sh\n"), 0o777); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Chmod(helper, 0o777); err != nil {
 					t.Fatal(err)
 				}
 				cfg.Workers[0].Management.ChallengeResponseCommand = helper

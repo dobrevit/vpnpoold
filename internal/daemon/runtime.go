@@ -547,12 +547,10 @@ func (r *Runtime) SetWorkerEnabled(_ context.Context, workerID string, enabled b
 		}
 		controlled.lifecycle.setEnabled(enabled, true)
 		if !enabled {
-			controlled.model.SetDraining(false)
 			if r.hostIPRegistry != nil {
 				r.hostIPRegistry.Remove(workerID)
 			}
 			if r.pool != nil {
-				r.pool.SetDraining(workerID, false)
 				r.pool.SetHealthy(workerID, false)
 			}
 		}

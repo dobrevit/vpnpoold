@@ -24,6 +24,11 @@ func TestMetricsHandlerExposesBoundedOperationalState(t *testing.T) {
 				BytesFromClients: 5, BytesToClients: 6,
 				OpenVPNRestarts: 7, ProxyRestarts: 8,
 				HealthCheckSuccesses: 9, HealthCheckFailures: 10,
+				Evidence: worker.HealthEvidence{
+					ExpectedIPConfigured: true, ExpectedIPChecked: true,
+					ExpectedIPMatches: true, UniquenessEnforced: true,
+					UniquenessChecked: true, PublicIPUnique: true,
+				},
 			}}
 		},
 		func() dispatcher.Stats {
@@ -42,6 +47,8 @@ func TestMetricsHandlerExposesBoundedOperationalState(t *testing.T) {
 	body := response.Body.String()
 	for _, expected := range []string{
 		`vpnpool_worker_healthy{worker="worker-1"} 1`,
+		`vpnpool_worker_expected_ip_verified{worker="worker-1"} 1`,
+		`vpnpool_worker_public_ip_unique{worker="worker-1"} 1`,
 		`vpnpool_worker_state{worker="worker-1",state="HEALTHY"} 1`,
 		`vpnpool_worker_active_connections{worker="worker-1"} 2`,
 		`vpnpool_worker_openvpn_restarts_total{worker="worker-1"} 7`,
@@ -53,7 +60,7 @@ func TestMetricsHandlerExposesBoundedOperationalState(t *testing.T) {
 			t.Fatalf("metrics body does not contain %q:\n%s", expected, body)
 		}
 	}
-	if strings.Contains(body, "public_ip") {
+	if strings.Contains(body, `public_ip="`) {
 		t.Fatalf("metrics unexpectedly expose public-IP labels:\n%s", body)
 	}
 }

@@ -44,6 +44,10 @@ type WorkerStatus struct {
 	Draining             bool       `json:"draining"`
 	Available            bool       `json:"available"`
 	PublicIP             string     `json:"public_ip,omitempty"`
+	ExpectedIPConfigured bool       `json:"expected_ip_configured"`
+	ExpectedIPVerified   bool       `json:"expected_ip_verified"`
+	UniquenessEnforced   bool       `json:"uniqueness_enforced"`
+	PublicIPUnique       bool       `json:"public_ip_unique"`
 	LastHealthyAt        *time.Time `json:"last_healthy_at,omitempty"`
 	ActiveConnections    int64      `json:"active_connections"`
 	ConnectionsTotal     uint64     `json:"connections_total"`
@@ -326,6 +330,12 @@ func statusFromSnapshots(snapshots []worker.Snapshot, stats dispatcher.Stats) St
 			Enabled: snapshot.Enabled, Draining: snapshot.Draining,
 			Available:            snapshot.Available,
 			PublicIP:             publicIP,
+			ExpectedIPConfigured: snapshot.Evidence.ExpectedIPConfigured,
+			ExpectedIPVerified: snapshot.Evidence.ExpectedIPChecked &&
+				snapshot.Evidence.ExpectedIPMatches,
+			UniquenessEnforced: snapshot.Evidence.UniquenessEnforced,
+			PublicIPUnique: snapshot.Evidence.UniquenessChecked &&
+				snapshot.Evidence.PublicIPUnique,
 			LastHealthyAt:        lastHealthyAt,
 			ActiveConnections:    snapshot.ActiveConnections,
 			ConnectionsTotal:     snapshot.ConnectionsTotal,

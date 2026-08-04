@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"github.com/dobrevit/vpnpoold/internal/proxy/relay"
 )
 
 type Dialer interface {
@@ -93,18 +95,9 @@ func (s *Server) Serve(ctx context.Context, listener net.Listener) error {
 				s.wait.Wait()
 				return nil
 			}
-			if isTemporaryAcceptError(err) {
-				temporaryDelay = nextAcceptDelay(temporaryDelay)
-				timer := time.NewTimer(temporaryDelay)
-				select {
-				case <-ctx.Done():
-					if !timer.Stop() {
-						<-timer.C
-					}
-					continue
-				case <-timer.C:
-					continue
-				}
+			if relay.IsTemporaryAcceptError(err) {
+				temporaryDelay, _ = relay.WaitAcceptRetry(ctx, temporaryDelay)
+				continue
 			}
 			s.closeConnections()
 			s.wait.Wait()
@@ -121,26 +114,6 @@ func (s *Server) Serve(ctx context.Context, listener net.Listener) error {
 			}
 		}()
 	}
-}
-
-func isTemporaryAcceptError(err error) bool {
-	var temporary interface{ Temporary() bool }
-	return errors.As(err, &temporary) && temporary.Temporary()
-}
-
-func nextAcceptDelay(previous time.Duration) time.Duration {
-	const (
-		minimum = 5 * time.Millisecond
-		maximum = time.Second
-	)
-	if previous <= 0 {
-		return minimum
-	}
-	next := previous * 2
-	if next > maximum {
-		return maximum
-	}
-	return next
 }
 
 func (s *Server) ServeConn(parent context.Context, client net.Conn) error {
@@ -176,34 +149,7 @@ func (s *Server) ServeConn(parent context.Context, client net.Conn) error {
 		return err
 	}
 
-	sessionContext, cancelSession := context.WithCancel(parent)
-	defer cancelSession()
-	go func() {
-		<-sessionContext.Done()
-		_ = client.Close()
-		_ = upstream.Close()
-	}()
-
-	clientWithDeadline := deadlineConn{Conn: client, timeout: s.config.IdleTimeout}
-	upstreamWithDeadline := deadlineConn{Conn: upstream, timeout: s.config.IdleTimeout}
-	results := make(chan copyResult, 2)
-	go copyStream(results, "from_client", upstreamWithDeadline, clientWithDeadline)
-	go copyStream(results, "to_client", clientWithDeadline, upstreamWithDeadline)
-
-	first := <-results
-	s.recordBytes(first)
-	halfClose(first.direction, client, upstream)
-	second := <-results
-	s.recordBytes(second)
-	cancelSession()
-
-	if significantCopyError(first.err) {
-		return first.err
-	}
-	if significantCopyError(second.err) {
-		return second.err
-	}
-	return nil
+	return relay.Bidirectional(parent, client, upstream, s.config.IdleTimeout, s.recordBytes)
 }
 
 func (s *Server) Stats() Stats {
@@ -233,48 +179,12 @@ func (s *Server) closeConnections() {
 	}
 }
 
-func (s *Server) recordBytes(result copyResult) {
-	if result.direction == "from_client" {
-		s.bytesFromClients.Add(uint64(result.bytes))
+func (s *Server) recordBytes(result relay.Result) {
+	if result.Direction == relay.FromClient {
+		s.bytesFromClients.Add(uint64(result.Bytes))
 	} else {
-		s.bytesToClients.Add(uint64(result.bytes))
+		s.bytesToClients.Add(uint64(result.Bytes))
 	}
-}
-
-type copyResult struct {
-	direction string
-	bytes     int64
-	err       error
-}
-
-func copyStream(results chan<- copyResult, direction string, destination io.Writer, source io.Reader) {
-	count, err := io.Copy(destination, source)
-	results <- copyResult{direction: direction, bytes: count, err: err}
-}
-
-func halfClose(direction string, client, upstream net.Conn) {
-	if direction == "from_client" {
-		if connection, ok := upstream.(interface{ CloseWrite() error }); ok {
-			_ = connection.CloseWrite()
-		}
-		if connection, ok := client.(interface{ CloseRead() error }); ok {
-			_ = connection.CloseRead()
-		}
-		return
-	}
-	if connection, ok := client.(interface{ CloseWrite() error }); ok {
-		_ = connection.CloseWrite()
-	}
-	if connection, ok := upstream.(interface{ CloseRead() error }); ok {
-		_ = connection.CloseRead()
-	}
-}
-
-func significantCopyError(err error) bool {
-	return err != nil &&
-		!errors.Is(err, net.ErrClosed) &&
-		!errors.Is(err, io.EOF) &&
-		!errors.Is(err, context.Canceled)
 }
 
 func dialErrorReply(err error) byte {
@@ -292,23 +202,4 @@ func dialErrorReply(err error) byte {
 		return replyHostUnreachable
 	}
 	return replyGeneralFailure
-}
-
-type deadlineConn struct {
-	net.Conn
-	timeout time.Duration
-}
-
-func (c deadlineConn) Read(data []byte) (int, error) {
-	if err := c.Conn.SetReadDeadline(time.Now().Add(c.timeout)); err != nil {
-		return 0, err
-	}
-	return c.Conn.Read(data)
-}
-
-func (c deadlineConn) Write(data []byte) (int, error) {
-	if err := c.Conn.SetWriteDeadline(time.Now().Add(c.timeout)); err != nil {
-		return 0, err
-	}
-	return c.Conn.Write(data)
 }

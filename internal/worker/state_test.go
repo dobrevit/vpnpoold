@@ -149,6 +149,27 @@ func completeEvidence() HealthEvidence {
 	}
 }
 
+func TestHealthEvidenceRequiresConfiguredChecksToHaveSucceeded(t *testing.T) {
+	evidence := completeEvidence()
+	evidence.ExpectedIPConfigured = true
+	evidence.ExpectedIPChecked = false
+	if evidence.Complete() {
+		t.Fatal("evidence was complete without configured expected-IP check")
+	}
+	evidence.ExpectedIPChecked = true
+	evidence.ExpectedIPMatches = true
+	evidence.UniquenessEnforced = true
+	evidence.UniquenessChecked = false
+	if evidence.Complete() {
+		t.Fatal("evidence was complete without enforced uniqueness check")
+	}
+	evidence.UniquenessChecked = true
+	evidence.PublicIPUnique = true
+	if !evidence.Complete() {
+		t.Fatal("complete required evidence was rejected")
+	}
+}
+
 func ptrEvidence(evidence HealthEvidence) *HealthEvidence {
 	return &evidence
 }

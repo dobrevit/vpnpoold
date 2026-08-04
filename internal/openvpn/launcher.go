@@ -5,14 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"regexp"
 
+	"github.com/dobrevit/vpnpoold/internal/netutil"
 	"github.com/dobrevit/vpnpoold/internal/process"
-)
-
-var (
-	namespaceNamePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
-	interfaceNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,15}$`)
 )
 
 type LaunchSpec struct {
@@ -68,7 +63,7 @@ func (l Launcher) validate(spec LaunchSpec) error {
 	if !filepath.IsAbs(l.IPBinary) || !filepath.IsAbs(l.OpenVPNBinary) {
 		return errors.New("ip and OpenVPN binary paths must be absolute")
 	}
-	if !namespaceNamePattern.MatchString(spec.Namespace) {
+	if !netutil.IsValidNamespaceName(spec.Namespace) {
 		return errors.New("namespace name is invalid")
 	}
 	if !filepath.IsAbs(spec.ProfilePath) || filepath.Ext(spec.ProfilePath) != ".ovpn" {
@@ -77,7 +72,7 @@ func (l Launcher) validate(spec LaunchSpec) error {
 	if !filepath.IsAbs(spec.WorkingDirectory) {
 		return errors.New("profile working directory must be absolute")
 	}
-	if !interfaceNamePattern.MatchString(spec.TunnelInterface) {
+	if !netutil.IsValidInterfaceName(spec.TunnelInterface) {
 		return errors.New("tunnel interface name is invalid")
 	}
 	if !filepath.IsAbs(spec.ManagementSocket) {

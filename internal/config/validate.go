@@ -12,12 +12,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/dobrevit/vpnpoold/internal/netutil"
 )
 
 var (
-	workerIDPattern  = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$`)
-	prefixPattern    = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`)
-	ifacePattern     = regexp.MustCompile(`^[a-zA-Z0-9_.-]{1,15}$`)
 	jsonFieldPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]{0,127}$`)
 )
 
@@ -172,7 +171,7 @@ func validateExecutable(path string) error {
 
 func validateNetwork(networkConfig Network, workerCount int) error {
 	var problems []error
-	if !prefixPattern.MatchString(networkConfig.NamespacePrefix) {
+	if !netutil.IsValidResourcePrefix(networkConfig.NamespacePrefix) {
 		problems = append(problems, errors.New("network.namespace_prefix must start with a lowercase letter and contain only lowercase letters, digits, and hyphens"))
 	}
 	subnet, err := netip.ParsePrefix(networkConfig.Subnet)
@@ -196,10 +195,10 @@ func validateNetwork(networkConfig Network, workerCount int) error {
 			}
 		}
 	}
-	if !ifacePattern.MatchString(networkConfig.HostUplinkInterface) {
+	if !netutil.IsValidInterfaceName(networkConfig.HostUplinkInterface) {
 		problems = append(problems, errors.New("network.host_uplink_interface must be a valid Linux interface name"))
 	}
-	if !ifacePattern.MatchString(networkConfig.TunnelInterface) {
+	if !netutil.IsValidInterfaceName(networkConfig.TunnelInterface) {
 		problems = append(problems, errors.New("network.tunnel_interface must be a valid Linux interface name"))
 	}
 	seenDNSServers := make(map[netip.Addr]struct{}, len(networkConfig.DNSServers))
@@ -346,7 +345,7 @@ func reservedExampleHost(host string) bool {
 }
 
 func IsValidWorkerID(id string) bool {
-	return workerIDPattern.MatchString(id)
+	return netutil.IsValidWorkerID(id)
 }
 
 func validateWorkers(profilesDir string, workers []Worker) error {
@@ -357,7 +356,7 @@ func validateWorkers(profilesDir string, workers []Worker) error {
 	seen := make(map[string]struct{}, len(workers))
 	for index, worker := range workers {
 		field := fmt.Sprintf("workers[%d]", index)
-		if !workerIDPattern.MatchString(worker.ID) {
+		if !netutil.IsValidWorkerID(worker.ID) {
 			problems = append(problems, fmt.Errorf("%s.id %q is invalid", field, worker.ID))
 		} else if _, exists := seen[worker.ID]; exists {
 			problems = append(problems, fmt.Errorf("%s.id %q is duplicated", field, worker.ID))

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/dobrevit/vpnpoold/internal/netutil"
 	"github.com/dobrevit/vpnpoold/internal/process"
 )
 
@@ -27,7 +28,7 @@ func NewManager(runner process.Runner, ipPath, nftPath string) (*Manager, error)
 }
 
 func (m *Manager) Apply(ctx context.Context, namespace string, rules WorkerRules) error {
-	if !namespacePattern.MatchString(namespace) {
+	if !netutil.IsValidNamespaceName(namespace) {
 		return errors.New("namespace name is invalid")
 	}
 	result, err := m.runner.Run(ctx, process.Command{

@@ -29,6 +29,12 @@ func TestStatusRoundTripAndPrivateSocket(t *testing.T) {
 	server, err := NewServerWithStats(socketPath, func() []worker.Snapshot {
 		snapshot := model.Snapshot()
 		snapshot.Evidence.PublicIP = netip.MustParseAddr("8.8.8.8")
+		snapshot.Evidence.ExpectedIPConfigured = true
+		snapshot.Evidence.ExpectedIPChecked = true
+		snapshot.Evidence.ExpectedIPMatches = true
+		snapshot.Evidence.UniquenessEnforced = true
+		snapshot.Evidence.UniquenessChecked = true
+		snapshot.Evidence.PublicIPUnique = true
 		snapshot.ConnectionsTotal = 3
 		snapshot.OpenVPNRestarts = 2
 		return []worker.Snapshot{snapshot}
@@ -62,6 +68,10 @@ func TestStatusRoundTripAndPrivateSocket(t *testing.T) {
 	if len(status.Workers) != 1 || status.Workers[0].ID != "worker-1" ||
 		status.Workers[0].State != "DISABLED" ||
 		status.Workers[0].PublicIP != "8.8.8.8" ||
+		!status.Workers[0].ExpectedIPConfigured ||
+		!status.Workers[0].ExpectedIPVerified ||
+		!status.Workers[0].UniquenessEnforced ||
+		!status.Workers[0].PublicIPUnique ||
 		status.Workers[0].ConnectionsTotal != 3 ||
 		status.Workers[0].OpenVPNRestarts != 2 ||
 		status.Dispatcher.ConnectionsTotal != 4 {

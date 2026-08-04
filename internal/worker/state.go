@@ -59,7 +59,11 @@ type HealthEvidence struct {
 	ProxyReachable       bool
 	TestRequestSucceeded bool
 	PublicIP             netip.Addr
+	ExpectedIPConfigured bool
+	ExpectedIPChecked    bool
 	ExpectedIPMatches    bool
+	UniquenessEnforced   bool
+	UniquenessChecked    bool
 	PublicIPUnique       bool
 }
 
@@ -73,8 +77,8 @@ func (e HealthEvidence) Complete() bool {
 		e.ProxyReachable &&
 		e.TestRequestSucceeded &&
 		isPublicUnicast(e.PublicIP) &&
-		e.ExpectedIPMatches &&
-		e.PublicIPUnique
+		(!e.ExpectedIPConfigured || (e.ExpectedIPChecked && e.ExpectedIPMatches)) &&
+		(!e.UniquenessEnforced || (e.UniquenessChecked && e.PublicIPUnique))
 }
 
 type Snapshot struct {

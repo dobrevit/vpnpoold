@@ -64,11 +64,16 @@ func TestRegistryRejectsLeaksMismatchAndDuplicates(t *testing.T) {
 		t.Fatalf("dynamic host leak error = %v", err)
 	}
 	publicIP := netip.MustParseAddr("8.8.8.8")
-	if _, err := registry.VerifyAndRecord("worker-1", publicIP, VerificationPolicy{
+	first, err := registry.VerifyAndRecord("worker-1", publicIP, VerificationPolicy{
 		ExpectedIP:        publicIP,
 		EnforceUniqueness: true,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("first verification: %v", err)
+	}
+	if !first.ExpectedIPConfigured || !first.ExpectedIPChecked || !first.ExpectedIPMatches ||
+		!first.UniquenessEnforced || !first.UniquenessChecked || !first.PublicIPUnique {
+		t.Fatalf("required verification evidence = %+v", first)
 	}
 	if _, err := registry.VerifyAndRecord("worker-2", publicIP, VerificationPolicy{
 		EnforceUniqueness: true,
@@ -86,6 +91,10 @@ func TestRegistryRejectsLeaksMismatchAndDuplicates(t *testing.T) {
 	}
 	if !result.Changed || result.PreviousIP != publicIP {
 		t.Fatalf("change result = %+v", result)
+	}
+	if result.ExpectedIPConfigured || result.ExpectedIPChecked || result.ExpectedIPMatches ||
+		result.UniquenessEnforced || result.UniquenessChecked || result.PublicIPUnique {
+		t.Fatalf("optional verification evidence = %+v", result)
 	}
 }
 

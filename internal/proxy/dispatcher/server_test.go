@@ -170,10 +170,15 @@ func TestStaleSelectionDoesNotConsumeConnectAttempt(t *testing.T) {
 
 func TestDestinationFailureDoesNotMarkWorkerUnhealthy(t *testing.T) {
 	registry := NewRegistry()
-	mustUpsert(t, registry, balance.Candidate{
-		ID: "worker-a", Address: "10.0.0.2:1081", Weight: 1, Healthy: true,
-	})
+	for _, candidate := range []balance.Candidate{
+		{ID: "worker-a", Address: "10.0.0.2:1081", Weight: 1, Healthy: true},
+		{ID: "worker-b", Address: "10.0.0.6:1081", Weight: 1, Healthy: true},
+	} {
+		mustUpsert(t, registry, candidate)
+	}
+	var calls int
 	connector := connectorFunc(func(context.Context, balance.Candidate, string) (net.Conn, error) {
+		calls++
 		return nil, &socks5.ReplyError{Code: socks5.ReplyConnectionRefused}
 	})
 	dispatcher := newTestDispatcher(t, registry, connector, nil, balance.RoundRobin)
@@ -189,6 +194,9 @@ func TestDestinationFailureDoesNotMarkWorkerUnhealthy(t *testing.T) {
 	<-done
 	if !registryCandidate(t, registry, "worker-a").Healthy {
 		t.Fatal("ordinary destination refusal marked worker unhealthy")
+	}
+	if calls != 1 || dispatcher.Stats().BackendRetries != 0 {
+		t.Fatalf("destination failure calls = %d, stats = %+v", calls, dispatcher.Stats())
 	}
 }
 
@@ -251,6 +259,35 @@ func TestCloseWorkerSessionsTerminatesPinnedConnection(t *testing.T) {
 	}
 	_ = client.Close()
 	<-done
+}
+
+func TestCloseWorkerSessionsOwnsConnectionBeforeSuccessReply(t *testing.T) {
+	registry := NewRegistry()
+	mustUpsert(t, registry, balance.Candidate{
+		ID: "worker-a", Address: "worker-a:1081", Weight: 1, Healthy: true,
+	})
+	connector := &heldConnector{ready: make(chan struct{})}
+	dispatcher := newTestDispatcher(t, registry, connector, nil, balance.RoundRobin)
+	server, client := net.Pipe()
+	done := make(chan error, 1)
+	go func() { done <- dispatcher.ServeConn(context.Background(), server) }()
+	performNoAuthGreeting(t, client)
+	writeConnectRequest(t, client, "127.0.0.1:80")
+	<-connector.ready
+
+	deadline := time.Now().Add(time.Second)
+	closed := 0
+	for closed == 0 && time.Now().Before(deadline) {
+		closed = dispatcher.CloseWorkerSessions("worker-a")
+		time.Sleep(time.Millisecond)
+	}
+	if closed != 1 {
+		t.Fatalf("closed sessions before success reply = %d", closed)
+	}
+	_ = client.Close()
+	if err := <-done; err == nil {
+		t.Fatal("session succeeded after worker was withdrawn before acknowledgement")
+	}
 }
 
 func TestDispatcherBacksOffAfterTemporaryAcceptFailure(t *testing.T) {

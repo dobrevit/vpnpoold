@@ -56,17 +56,38 @@ jobs:
         run: SOURCE_DATE_EPOCH=1704067200 ./deploy/package-native.sh 0.0.0-ci ./dist
       - name: Packages are reproducible
         run: |
-          SOURCE_DATE_EPOCH=1704067200 ./deploy/package-native.sh 0.0.0-ci ./dist-repeat
+          set -eu
+          # Build the second copy outside the working tree. A scratch directory
+          # inside the repository would show up as an untracked file, and Go
+          # records that as vcs.modified in the binary it builds — so the check
+          # would be measuring its own side effect rather than the packages.
+          repeat="$(mktemp -d)"
+          trap 'rm -rf "$repeat"' EXIT
+          SOURCE_DATE_EPOCH=1704067200 ./deploy/package-native.sh 0.0.0-ci "$repeat"
           for package in ./dist/vpnpoold*.deb ./dist/vpnpoold*.rpm ./dist/vpnpoold*.apk; do
             name="$(basename "$package")"
+            if [ ! -f "$repeat/$name" ]; then
+              echo "second build did not produce $name" >&2
+              exit 1
+            fi
             first="$(sha256sum "$package" | cut -d' ' -f1)"
-            second="$(sha256sum "./dist-repeat/$name" | cut -d' ' -f1)"
+            second="$(sha256sum "$repeat/$name" | cut -d' ' -f1)"
             if [ "$first" != "$second" ]; then
               echo "package $name is not reproducible" >&2
+              echo "  first  $first ($(stat -c '%s' "$package") bytes)" >&2
+              echo "  second $second ($(stat -c '%s' "$repeat/$name") bytes)" >&2
+              # Name the differing member so the log explains itself.
+              case "$name" in
+              *.deb)
+                dpkg-deb -c "$package" >/tmp/first.list
+                dpkg-deb -c "$repeat/$name" >/tmp/second.list
+                diff /tmp/first.list /tmp/second.list >&2 || true
+                ;;
+              esac
               exit 1
             fi
           done
-          rm -rf ./dist-repeat
+          echo "all packages reproduced byte-for-byte"
       - uses: actions/upload-artifact@v4
         with:
           name: linux-release-smoke

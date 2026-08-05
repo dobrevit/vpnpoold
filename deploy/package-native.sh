@@ -51,7 +51,7 @@ trap 'rm -rf "$temporary"' EXIT HUP INT TERM
 # host-native build rather than trying to execute a cross-compiled binary.
 (
 	cd "$project_directory"
-	go build -trimpath -ldflags "$ldflags" -o "$temporary/vpnpoold.host" ./cmd/vpnpoold
+	go build -buildvcs=false -trimpath -ldflags "$ldflags" -o "$temporary/vpnpoold.host" ./cmd/vpnpoold
 )
 for shell in bash zsh fish; do
 	"$temporary/vpnpoold.host" completion "$shell" >"$temporary/completion.$shell"
@@ -63,7 +63,7 @@ for architecture in amd64 arm64; do
 	(
 		cd "$project_directory"
 		CGO_ENABLED=0 GOOS=linux GOARCH=$architecture \
-			go build -trimpath -ldflags "$ldflags" \
+			go build -buildvcs=false -trimpath -ldflags "$ldflags" \
 			-o "$stage/vpnpoold" ./cmd/vpnpoold
 	)
 	cp "$temporary/vpnpoold.service" "$stage/vpnpoold.service"

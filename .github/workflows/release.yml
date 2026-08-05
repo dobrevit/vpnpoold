@@ -34,7 +34,7 @@ jobs:
       # secrets.
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # deploy/package.sh stamps the commit into the binary, and the source
           # date is read from the tagged commit.

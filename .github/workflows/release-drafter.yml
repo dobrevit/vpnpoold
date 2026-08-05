@@ -36,16 +36,27 @@ jobs:
   # from the pull request head. It has no checkout step for exactly that
   # reason, and holds only the labelling permission it needs. Do not add a
   # checkout, a build step, or any action that consumes PR-authored files.
+  #
+  # Release Drafter v7 removed the `disable-releaser` input. Passing it to the
+  # main action no longer suppresses the releaser — the action tried to create
+  # a release from this job, which holds only `contents: read`, and failed with
+  # "Resource not accessible by integration". v7 ships a dedicated autolabeler
+  # action for exactly this case; use it rather than the main action.
+  #
+  # Dependabot-triggered runs receive a read-only token, and Dependabot already
+  # applies its own labels from .github/dependabot.yml, so skip those rather
+  # than fail on a permission the run cannot be granted.
   label:
-    if: github.event_name == 'pull_request_target'
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: write
     steps:
-      - uses: release-drafter/release-drafter@v7
+      - uses: release-drafter/release-drafter/autolabeler@v7
         with:
           config-name: release-drafter.yml
-          disable-releaser: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -10,7 +10,7 @@ LDFLAGS += -X github.com/dobrevit/vpnpoold/internal/buildinfo.Date=$(BUILD_DATE)
 all: check
 
 build:
-	go build -buildvcs=false -trimpath -ldflags "$(LDFLAGS)" -o vpnpoold ./cmd/vpnpoold
+	go build -trimpath -ldflags "$(LDFLAGS)" -o vpnpoold ./cmd/vpnpoold
 
 test:
 	go test ./...

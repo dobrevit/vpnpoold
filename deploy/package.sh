@@ -40,7 +40,7 @@ for architecture in amd64 arm64; do
 	(
 		cd "$project_directory"
 		CGO_ENABLED=0 GOOS=linux GOARCH=$architecture \
-			go build -buildvcs=false -trimpath -ldflags "$ldflags" \
+			go build -trimpath -ldflags "$ldflags" \
 			-o "$stage/vpnpoold" ./cmd/vpnpoold
 	)
 	install -m 0644 \

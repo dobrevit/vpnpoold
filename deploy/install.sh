@@ -30,7 +30,7 @@ fi
 "$binary" version >/dev/null
 config=$destination_root/etc/vpnpoold/vpnpoold.yaml
 if [ -f "$config" ]; then
-	"$binary" validate -config "$config"
+	"$binary" validate --config "$config"
 fi
 
 sbindir=$destination_root/usr/local/sbin

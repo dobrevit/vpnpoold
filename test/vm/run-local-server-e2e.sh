@@ -134,11 +134,11 @@ start_daemon() {
 	systemd-run --quiet --unit="$unit" --collect \
 		--property=KillMode=mixed \
 		--property=TimeoutStopSec=30s \
-		"$daemon" daemon -config "$config"
+		"$daemon" daemon --config "$config"
 }
 
 status_json() {
-	"$daemon" status -config "$config" -format json 2>/dev/null
+	"$daemon" status --config "$config" --format json 2>/dev/null
 }
 
 wait_for_healthy_count() {
@@ -259,7 +259,7 @@ request_authenticated_egress() {
 
 reload_and_wait() {
 	control_inode=$(stat -c %i "$runtime/runtime/control.sock")
-	"$daemon" reload -config "$config"
+	"$daemon" reload --config "$config"
 	wait_for_control_socket_change "$control_inode" 450
 	wait_for_healthy_count 4 450
 }
@@ -395,7 +395,7 @@ assert_live_balancing_modes() {
 		return 1
 		;;
 	esac
-	"$daemon" worker disable -config "$config" "$removed_worker"
+	"$daemon" worker disable --config "$config" "$removed_worker"
 	wait_for_worker_enabled_state "$removed_worker" false DISABLED 150
 	: >"$after"
 	for session in $(seq 1 20); do
@@ -414,7 +414,7 @@ assert_live_balancing_modes() {
 			return 1
 		fi
 	done
-	"$daemon" worker enable -config "$config" "$removed_worker"
+	"$daemon" worker enable --config "$config" "$removed_worker"
 	wait_for_worker_availability "$removed_worker" true 450
 	restore_default_dispatcher
 	echo "balancing: live least-connections, username_hash, session_hash, and authentication verified"
@@ -533,13 +533,13 @@ wait_for_healthy_count 4 450
 assert_round_robin
 assert_observability
 
-table_status=$("$daemon" status -config "$config")
+table_status=$("$daemon" status --config "$config")
 if ! printf '%s' "$table_status" | grep -F 'WORKER' >/dev/null ||
 	! printf '%s' "$table_status" | grep -F 'local-1' >/dev/null; then
 	echo "human-readable status table is incomplete" >&2
 	exit 1
 fi
-"$daemon" worker disable -config "$config" local-4
+"$daemon" worker disable --config "$config" local-4
 wait_for_worker_enabled_state local-4 false DISABLED 150
 disabled_namespace=$(namespace_for_worker local-4)
 if ip netns list | awk '{print $1}' | grep -Fx "$disabled_namespace" >/dev/null; then
@@ -549,10 +549,10 @@ fi
 for request in $(seq 1 6); do
 	assert_worker_not_selected 198.51.100.13
 done
-"$daemon" worker enable -config "$config" local-4
+"$daemon" worker enable --config "$config" local-4
 wait_for_worker_availability local-4 true 450
 control_inode=$(stat -c %i "$runtime/runtime/control.sock")
-"$daemon" reload -config "$config"
+"$daemon" reload --config "$config"
 wait_for_control_socket_change "$control_inode" 450
 wait_for_healthy_count 4 450
 assert_round_robin

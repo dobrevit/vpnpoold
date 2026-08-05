@@ -24,7 +24,7 @@ Install a freshly built or extracted binary:
 sudo ./deploy/install.sh ./vpnpoold
 sudoedit /etc/vpnpoold/vpnpoold.yaml
 sudo /usr/local/sbin/vpnpoold validate \
-  -config /etc/vpnpoold/vpnpoold.yaml
+  --config /etc/vpnpoold/vpnpoold.yaml
 sudo systemctl enable --now vpnpoold
 ```
 
@@ -35,7 +35,7 @@ replacing an existing binary, retains one copy as
 unless explicitly requested:
 
 ```sh
-sudo ./vpnpoold-new validate -config /etc/vpnpoold/vpnpoold.yaml
+sudo ./vpnpoold-new validate --config /etc/vpnpoold/vpnpoold.yaml
 sudo env VPNPOOLD_RESTART=1 ./deploy/install.sh ./vpnpoold-new
 ```
 

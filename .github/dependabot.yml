@@ -1,0 +1,44 @@
+version: 2
+
+updates:
+  # Go modules. This daemon runs as root, so a dependency update is a change to
+  # privileged code: every one of these needs the same review as a hand-written
+  # change, and CI runs govulncheck on the result.
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: build
+    labels:
+      - build
+      - dependencies
+    groups:
+      # One pull request for routine patch and minor bumps; majors arrive
+      # separately because they need real review.
+      go-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # Workflow actions. Pinning matters here: release-drafter runs on
+  # pull_request_target with a writable token, and the release workflow holds
+  # id-token: write for signing.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: ci
+    labels:
+      - ci
+      - dependencies
+    groups:
+      actions:
+        update-types:
+          - minor
+          - patch

@@ -3,6 +3,9 @@ name: ci
 on:
   push:
   pull_request:
+  # Callable so the release workflow runs exactly these checks rather than a
+  # second copy of them that could drift.
+  workflow_call:
 
 permissions:
   contents: read

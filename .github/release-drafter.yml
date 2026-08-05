@@ -90,11 +90,24 @@ template: |
 
   ## Verifying this release
 
-  Every archive and package is accompanied by `SHA256SUMS`:
+  Artifacts are signed with Sigstore keyless signing — there is no long-lived
+  key. Verification checks that this exact release workflow, in this
+  repository, at this tag produced the file:
 
   ```sh
+  cosign verify-blob \
+    --bundle SHA256SUMS.cosign.bundle \
+    --certificate-identity \
+      'https://github.com/$OWNER/$REPOSITORY/.github/workflows/release.yml@refs/tags/v$RESOLVED_VERSION' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+    SHA256SUMS
+
   sha256sum -c SHA256SUMS
   ```
+
+  Both certificate flags are required. Without them the check degrades to
+  "signed by somebody". `docs/release.md` covers verifying individual
+  artifacts.
 
   ## Before deploying
 

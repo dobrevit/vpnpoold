@@ -1,0 +1,134 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions: {}
+
+# Injection safety
+# ----------------
+# No event-payload field reaches a shell in this workflow. The only external
+# value is the tag name, which a repository writer controls and which becomes
+# part of a version string, artifact names and a git argument. It is read
+# through `env:` (never interpolated into `run:`) and rejected unless it matches
+# a strict vMAJOR.MINOR.PATCH form, so a tag such as `v1.0.0;curl evil` never
+# reaches a command. Keep that validation first in any step that consumes it.
+jobs:
+  # The release must not ship anything the ordinary checks have not passed.
+  # This calls the real ci.yml rather than repeating its steps, so the two
+  # cannot drift.
+  checks:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  release:
+    needs: checks
+    runs-on: ubuntu-latest
+    permissions:
+      # Upload assets to the release.
+      contents: write
+      # Request the OIDC token cosign uses for keyless signing. This is the
+      # entire reason no signing key exists in this repository or in Actions
+      # secrets.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # deploy/package.sh stamps the commit into the binary, and the source
+          # date is read from the tagged commit.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: v2.4.1
+
+      - name: Resolve version and source date
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -eu
+          case "$TAG" in
+          v[0-9]*.[0-9]*.[0-9]*) ;;
+          *)
+            echo "tag $TAG is not of the form vMAJOR.MINOR.PATCH" >&2
+            exit 1
+            ;;
+          esac
+          case "$TAG" in
+          *[!0-9A-Za-z.+_-]*)
+            echo "tag $TAG contains unsupported characters" >&2
+            exit 1
+            ;;
+          esac
+          version="${TAG#v}"
+          echo "VERSION=$version" >>"$GITHUB_ENV"
+          echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct "$TAG")" >>"$GITHUB_ENV"
+
+      - name: Build archives and packages
+        run: |
+          set -eu
+          ./deploy/package.sh "$VERSION" ./dist
+          ./deploy/package-native.sh "$VERSION" ./dist
+
+      - name: Compose a single checksum manifest
+        run: |
+          set -eu
+          cd dist
+          # Each build script writes its own partial manifest; the release
+          # publishes one manifest covering every artifact.
+          rm -f SHA256SUMS SHA256SUMS.packages
+          sha256sum vpnpoold* >SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Sign artifacts
+        run: |
+          set -eu
+          cd dist
+          # Keyless: the signing identity is this workflow, attested by the
+          # OIDC token above and recorded in the public transparency log. Each
+          # artifact gets a self-contained bundle holding the signature and the
+          # short-lived certificate.
+          for artifact in vpnpoold* SHA256SUMS; do
+            cosign sign-blob --yes \
+              --bundle "${artifact}.cosign.bundle" \
+              "$artifact"
+          done
+          ls -1
+
+      - name: Verify what we just signed
+        env:
+          REPOSITORY: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -eu
+          cd dist
+          # Verifying here means a broken signature fails the release rather
+          # than an operator's install.
+          identity="https://github.com/${REPOSITORY}/.github/workflows/release.yml@refs/tags/${TAG}"
+          for artifact in vpnpoold* SHA256SUMS; do
+            case "$artifact" in
+            *.cosign.bundle) continue ;;
+            esac
+            cosign verify-blob \
+              --bundle "${artifact}.cosign.bundle" \
+              --certificate-identity "$identity" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              "$artifact"
+          done
+
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -eu
+          # Release Drafter has already prepared the notes for this tag; attach
+          # the artifacts to that draft without altering its body.
+          gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"

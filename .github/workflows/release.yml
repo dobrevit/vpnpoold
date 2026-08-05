@@ -129,6 +129,20 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -eu
-          # Release Drafter has already prepared the notes for this tag; attach
-          # the artifacts to that draft without altering its body.
+          # Release Drafter usually has a draft prepared for this tag, and the
+          # artifacts are attached to it without altering its body. But the
+          # drafter resolves its own version from merged pull requests, so the
+          # tag being released will not always match the draft it prepared.
+          # Create the release when no such draft exists rather than failing
+          # after everything has already been built, signed and verified.
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "attaching artifacts to the existing release for $TAG"
+          else
+            echo "no release exists for $TAG; creating a draft"
+            gh release create "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --draft \
+              --title "$TAG" \
+              --generate-notes
+          fi
           gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"

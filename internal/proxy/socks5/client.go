@@ -12,6 +12,10 @@ import (
 	"time"
 )
 
+type Dialer interface {
+	DialContext(context.Context, string, string) (net.Conn, error)
+}
+
 // ClientDialer establishes each requested TCP connection through one SOCKS5
 // worker. It intentionally offers only the no-authentication method because
 // worker listeners are protected by namespace firewall rules; client

@@ -407,6 +407,7 @@ func (b Builder) buildWorker(
 		IPBinary: b.IPBinary, DaemonBinary: b.DaemonBinary,
 		Namespace: item.allocation.Namespace, WorkerID: item.config.ID,
 		ListenAddress:     proxyAddress,
+		AllowedClient:     item.allocation.HostAddress.Addr().String(),
 		UpstreamHTTPProxy: item.config.UpstreamHTTPProxy,
 		HandshakeTimeout:  cfg.Proxy.HandshakeTimeout.Duration,
 		ConnectTimeout:    cfg.Proxy.ConnectTimeout.Duration,

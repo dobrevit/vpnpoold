@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dobrevit/vpnpoold/internal/proxy/socks5"
+	"github.com/dobrevit/vpnpoold/internal/proxy/workerproxy"
 )
 
 func TestParseObservedIP(t *testing.T) {
@@ -121,11 +121,12 @@ func TestCheckerUsesWorkerSOCKSPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	proxyServer, err := socks5.NewServer(socks5.Config{
-		HandshakeTimeout: time.Second,
-		ConnectTimeout:   time.Second,
-		IdleTimeout:      time.Second,
-	}, &net.Dialer{}, nil)
+	proxyServer, err := workerproxy.New(workerproxy.Config{
+		AllowedClientAddress: netip.MustParseAddr("127.0.0.1"),
+		HandshakeTimeout:     time.Second,
+		ConnectTimeout:       time.Second,
+		IdleTimeout:          time.Second,
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,8 +151,5 @@ func TestCheckerUsesWorkerSOCKSPath(t *testing.T) {
 	}
 	if address.String() != "8.8.4.4" {
 		t.Fatalf("address = %s", address)
-	}
-	if proxyServer.Stats().ConnectionsTotal != 1 {
-		t.Fatalf("SOCKS connections = %d", proxyServer.Stats().ConnectionsTotal)
 	}
 }

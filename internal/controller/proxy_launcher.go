@@ -24,6 +24,7 @@ type WorkerProxyLauncher struct {
 	Namespace         string
 	WorkerID          string
 	ListenAddress     string
+	AllowedClient     string
 	UpstreamHTTPProxy string
 	HandshakeTimeout  time.Duration
 	ConnectTimeout    time.Duration
@@ -43,6 +44,7 @@ func (l WorkerProxyLauncher) Start(ctx context.Context) (process.ManagedProcess,
 		"worker-proxy",
 		"--worker-id", l.WorkerID,
 		"--listen", l.ListenAddress,
+		"--allowed-client", l.AllowedClient,
 		"--handshake-timeout", l.HandshakeTimeout.String(),
 		"--connect-timeout", l.ConnectTimeout.String(),
 		"--idle-timeout", l.IdleTimeout.String(),
@@ -99,6 +101,11 @@ func (l WorkerProxyLauncher) validate() error {
 	address, err := netip.ParseAddr(host)
 	if err != nil || address.IsUnspecified() || address.IsLoopback() {
 		return errors.New("worker proxy must listen on an explicit namespace veth address")
+	}
+	allowedClient, err := netip.ParseAddr(l.AllowedClient)
+	if err != nil || !allowedClient.Is4() || allowedClient.IsUnspecified() ||
+		allowedClient.IsLoopback() || allowedClient.IsMulticast() {
+		return errors.New("worker proxy allowed client must be an explicit host veth IPv4 address")
 	}
 	port, err := strconv.Atoi(portText)
 	if err != nil || port < 1 || port > 65535 {

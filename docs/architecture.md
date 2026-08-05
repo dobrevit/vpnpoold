@@ -4,8 +4,9 @@
 
 `vpnpoold daemon` runs on the Linux host. Each configured OpenVPN profile
 is assigned a deterministic network namespace, veth pair, and private `/30`.
-OpenVPN and `vpnpoold worker-proxy` will be separate processes launched inside
-that namespace. The daemon never changes a Go runtime thread's namespace.
+OpenVPN and `vpnpoold worker-proxy` are separate processes launched inside that
+namespace. The worker process embeds microproxy v0.0.1 and enables its SOCKS5
+frontend only. The daemon never changes a Go runtime thread's namespace.
 
 The host-side SOCKS5 dispatcher selects only workers whose state snapshot is
 both `HEALTHY` and fully verified. A selected TCP connection remains pinned to
@@ -106,10 +107,13 @@ dispatcher returns SOCKS5 CONNECT success; afterward the connection remains
 pinned. Transport or protocol failure marks the matching worker generation
 unhealthy immediately, while an ordinary destination refusal does not.
 
-When a worker configures `upstream_http_proxy`, its namespace SOCKS process
-opens a bounded, unauthenticated HTTP `CONNECT` tunnel through that explicit
-in-tunnel IP and port instead of dialing the destination directly. Destination
-hostnames are then resolved by the in-tunnel proxy, never by the host.
+When a worker configures `upstream_http_proxy`, microproxy routes its namespace
+SOCKS connection through a bounded, unauthenticated HTTP `CONNECT` tunnel to
+that explicit in-tunnel IP and port instead of dialing the destination
+directly. Destination hostnames are then resolved by the in-tunnel proxy,
+never by the host. Ambient `HTTP_PROXY` variables are ignored, the listener
+allows only the host-side veth address, and the configured handshake, connect,
+and per-I/O timeouts remain enforced by the vpnpoold adapter.
 
 ## Local control plane
 

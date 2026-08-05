@@ -13,7 +13,8 @@ The current implementation is a stable-MVP release candidate:
 - a race-safe, fail-closed worker state model;
 - deterministic namespace/veth address allocation and command orchestration;
 - transactional namespace and host nftables rule generation;
-- a runnable namespace-side SOCKS5 TCP `CONNECT` worker;
+- a separate namespace-side SOCKS5 TCP `CONNECT` worker powered by
+  [`microproxy` v0.0.1](https://github.com/dobrevit/microproxy/tree/v0.0.1);
 - host-side endpoint resolution, private credential-file injection, and
   full-tunnel derived OpenVPN profiles;
 - namespace-specific DNS and optional in-tunnel upstream HTTP CONNECT proxies;
@@ -141,9 +142,9 @@ Completed and unit-tested:
 - Milestone 2 primitives: deterministic addressing, namespace/veth lifecycle,
   rollback/idempotent cleanup, host prerequisite validation, and atomic
   namespace/host nftables rule generation.
-- Milestone 3 worker: SOCKS5 TCP `CONNECT`, namespace-local domain resolution,
-  optional upstream HTTP CONNECT, counters, deadlines, half-closes,
-  cancellation, and graceful shutdown.
+- Milestone 3 worker: embedded `microproxy` SOCKS5 TCP `CONNECT`,
+  namespace-local domain resolution, optional upstream HTTP CONNECT,
+  deadlines, half-closes, cancellation, and immediate session teardown.
 - Milestone 4 primitives: secret-safe remote inspection/resolution, direct
   OpenVPN launch, management `CONNECTED,SUCCESS` synchronization, tunnel
   probing supervision, graceful/forced termination, restart backoff, and
@@ -202,6 +203,12 @@ Deferred/incomplete:
 - UDP ASSOCIATE, HTTP CONNECT, transparent routing, packet bonding, dashboard,
   remote API, dynamic upload, clustering, certificate automation, and
   container orchestration.
+
+The embedded `microproxy` dependency also implements HTTP/HTTPS forward-proxy
+frontends, but vpnpoold does not open those listeners yet. The MVP continues to
+verify and expose only its SOCKS5 data path; adding a public HTTP listener also
+requires dispatcher selection, authentication, firewall, observability, and
+full egress-verification coverage for that path.
 
 See `docs/security-review.md` for the focused review evidence and residual
 risks. This is an internal engineering review, not an independent audit.

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"net/netip"
 	"strconv"
 	"strings"
 	"sync"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/dobrevit/vpnpoold/internal/balance"
 	"github.com/dobrevit/vpnpoold/internal/proxy/socks5"
+	"github.com/dobrevit/vpnpoold/internal/proxy/workerproxy"
 )
 
 func TestDispatcherRelaysThroughSelectedWorker(t *testing.T) {
@@ -365,11 +367,12 @@ func startWorker(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := socks5.NewServer(socks5.Config{
-		HandshakeTimeout: time.Second,
-		ConnectTimeout:   time.Second,
-		IdleTimeout:      time.Second,
-	}, &net.Dialer{}, nil)
+	server, err := workerproxy.New(workerproxy.Config{
+		AllowedClientAddress: netip.MustParseAddr("127.0.0.1"),
+		HandshakeTimeout:     time.Second,
+		ConnectTimeout:       time.Second,
+		IdleTimeout:          time.Second,
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

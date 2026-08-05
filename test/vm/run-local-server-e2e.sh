@@ -509,7 +509,7 @@ assert_observability() {
 			return 1
 		fi
 	done
-	if grep -E '198\\.51\\.100\\.|public_ip|username|destination' \
+	if grep -E '198\\.51\\.100\\.|(public_ip|username|destination)="' \
 		"$metrics_output" >/dev/null; then
 		echo "Prometheus output contains a prohibited high-cardinality value" >&2
 		return 1

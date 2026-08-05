@@ -30,7 +30,7 @@ import (
 	"github.com/dobrevit/vpnpoold/internal/process"
 	"github.com/dobrevit/vpnpoold/internal/proxy/auth"
 	"github.com/dobrevit/vpnpoold/internal/proxy/dispatcher"
-	"github.com/dobrevit/vpnpoold/internal/proxy/socks5"
+	"github.com/dobrevit/vpnpoold/internal/proxy/workerproxy"
 )
 
 const defaultConfigPath = "/etc/vpnpoold/vpnpoold.yaml"
@@ -587,6 +587,7 @@ func runWorkerProxy(args []string, stderr io.Writer) int {
 	flags := flag.NewFlagSet("worker-proxy", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	listenAddress := flags.String("listen", "", "namespace-side veth IP and TCP port")
+	allowedClient := flags.String("allowed-client", "", "host-side veth IP allowed to use the proxy")
 	workerID := flags.String("worker-id", "", "validated worker identifier for logs")
 	upstreamHTTPProxy := flags.String(
 		"upstream-http-proxy",
@@ -625,20 +626,19 @@ func runWorkerProxy(args []string, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "configure logging: %v\n", err)
 		return 2
 	}
-	var dialer socks5.Dialer = &net.Dialer{}
-	if *upstreamHTTPProxy != "" {
-		dialer = socks5.HTTPConnectDialer{
-			ProxyAddress:     *upstreamHTTPProxy,
-			NetDialer:        &net.Dialer{Timeout: *connectTimeout},
-			HandshakeTimeout: *connectTimeout,
-		}
+	clientAddress, err := netip.ParseAddr(*allowedClient)
+	if err != nil {
+		fmt.Fprintln(stderr, "worker-proxy --allowed-client must be an IP literal")
+		return 2
 	}
-	server, err := socks5.NewServer(socks5.Config{
-		HandshakeTimeout: *handshakeTimeout,
-		ConnectTimeout:   *connectTimeout,
-		IdleTimeout:      *idleTimeout,
-		AllowIPv6:        *allowIPv6,
-	}, dialer, logger)
+	server, err := workerproxy.New(workerproxy.Config{
+		AllowedClientAddress: clientAddress,
+		UpstreamHTTPProxy:    *upstreamHTTPProxy,
+		HandshakeTimeout:     *handshakeTimeout,
+		ConnectTimeout:       *connectTimeout,
+		IdleTimeout:          *idleTimeout,
+		AllowIPv6:            *allowIPv6,
+	}, logger)
 	if err != nil {
 		fmt.Fprintf(stderr, "configure worker proxy: %v\n", err)
 		return 2
@@ -660,12 +660,8 @@ func runWorkerProxy(args []string, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "serve worker proxy: %v\n", err)
 		return 1
 	}
-	stats := server.Stats()
 	logger.Info("worker proxy stopped",
 		slog.String("worker", *workerID),
-		slog.Uint64("connections_total", stats.ConnectionsTotal),
-		slog.Uint64("bytes_from_clients", stats.BytesFromClients),
-		slog.Uint64("bytes_to_clients", stats.BytesToClients),
 	)
 	return 0
 }

@@ -99,8 +99,10 @@ privilege boundary.
   or plugins is not acceptable.
 - Only SOCKS5 TCP `CONNECT` is supported. UDP, HTTP CONNECT at the public
   listener, transparent routing, and session migration are outside the MVP.
-  Privoxy or another HTTP-to-SOCKS adapter can be deployed separately, but it
-  becomes an additional authentication, DNS, logging, and exposure boundary.
+  The namespace worker embeds microproxy, whose HTTP/HTTPS frontend is not
+  opened by vpnpoold. Privoxy or another HTTP-to-SOCKS adapter can still be
+  deployed separately, but it becomes an additional authentication, DNS,
+  logging, and exposure boundary.
 - The principal live target was Ubuntu 24.04 with the project test OpenVPN
   server, plus a real-provider path. Before production, repeat host validation,
   privileged tests, systemd startup/reboot, provider authentication, DNS,

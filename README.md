@@ -143,12 +143,29 @@ The public SOCKS listener defaults to `127.0.0.1:1080`. Configuration validation
 rejects any non-loopback listener unless authentication is enabled or the
 operator explicitly opts into `allow_insecure_public_listener`.
 
-No worker is selectable until namespace,
-veth, OpenVPN, tunnel, route, proxy, test request, public-IP, expected-IP, and
-uniqueness evidence is complete. Configure `health.host_public_ips` with every
-known direct host egress address so matching verification results are rejected
-as leaks. When the list is empty, startup performs a direct, environment-proxy-
-independent request to `health.ip_check_url` and records the observed host IP.
+No worker is selectable until namespace, veth, OpenVPN, tunnel, route, proxy,
+test request, and public-IP evidence is complete. Those checks are
+unconditional.
+
+Two further checks are conditional on configuration, and a worker is only
+required to satisfy each one when it is configured:
+
+- **expected IP** runs when the worker sets `expected_public_ip`;
+- **uniqueness** runs when `proxy.balancing.uniqueness_enforced` is true, which
+  is the default.
+
+Evidence records both what was checked and what passed, so a worker reported as
+healthy with `uniqueness_enforced: false` has *not* been shown to hold a
+distinct exit address — it was never asked to. `vpnpoold status` and the
+Prometheus endpoint expose that distinction per worker
+(`vpnpool_worker_uniqueness_enforced` alongside `vpnpool_worker_public_ip_unique`),
+so alerting can tell "verified unique" apart from "not checked".
+
+Configure `health.host_public_ips` with every known direct host egress address
+so matching verification results are rejected as leaks. That leak check is
+unconditional. When the list is empty, startup performs a direct,
+environment-proxy-independent request to `health.ip_check_url` and records the
+observed host IP.
 
 ## Implementation status
 

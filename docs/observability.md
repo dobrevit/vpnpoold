@@ -27,6 +27,7 @@ Exported worker metrics use only the validated, configured worker ID as a
 label:
 
 - `vpnpool_worker_healthy`
+- `vpnpool_worker_enabled`
 - `vpnpool_worker_draining`
 - `vpnpool_worker_state`
 - `vpnpool_worker_state_since_timestamp_seconds`
@@ -40,6 +41,37 @@ label:
 - `vpnpool_worker_proxy_restarts_total`
 - `vpnpool_worker_healthcheck_successes_total`
 - `vpnpool_worker_healthcheck_failures_total`
+
+### Which egress checks actually ran
+
+Two of the egress checks are conditional on configuration, so
+`vpnpool_worker_healthy` alone does not say whether they were performed. Each
+is exported as a pair — was it required, and did it pass:
+
+- `vpnpool_worker_expected_ip_configured` — the worker sets
+  `expected_public_ip`
+- `vpnpool_worker_expected_ip_verified` — that address was checked and matched
+- `vpnpool_worker_uniqueness_enforced` —
+  `proxy.balancing.uniqueness_enforced` is on
+- `vpnpool_worker_public_ip_unique` — uniqueness was checked and held
+
+A healthy worker with `vpnpool_worker_uniqueness_enforced 0` has not been shown
+to hold a distinct exit address; it was never asked to. Alert on the pair
+rather than on `vpnpool_worker_healthy` alone if a distinct address per worker
+is something you rely on:
+
+```promql
+# A worker that is required to be unique but is not verified unique.
+vpnpool_worker_uniqueness_enforced == 1
+  unless vpnpool_worker_public_ip_unique == 1
+
+# Pinned exits that are no longer on their expected address.
+vpnpool_worker_expected_ip_configured == 1
+  unless vpnpool_worker_expected_ip_verified == 1
+```
+
+The host-WAN leak check is unconditional and has no such pair: a worker whose
+observed address matches a known host egress address never becomes healthy.
 
 Dispatcher metrics cover active and total connections, authentication
 failures, selections, safe pre-acknowledgement retries, no-worker failures, and

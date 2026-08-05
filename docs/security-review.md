@@ -8,6 +8,34 @@ systemd deployment, dependencies, and the disposable Ubuntu 24.04 acceptance
 environment. This is an internal engineering review, not an independent
 penetration test or security audit.
 
+## Changes made after this review
+
+The review date above is not bumped when the code changes, because a date
+implies coverage. The following landed after 2026-07-27 and were **not** part
+of the reviewed material. Each has unit coverage and, where noted, acceptance
+coverage, but none has been through a security review pass:
+
+- **Namespace worker replaced with `microproxy`** (2026-08-05). The entire
+  namespace-side data path changed, and a third-party dependency now sits
+  inside each worker namespace. Its HTTP/HTTPS frontend is not opened by
+  vpnpoold, but the dependency and its transitive `goproxy` are new trusted
+  code in the data path.
+- **CLI converted to Cobra** (2026-08-05). Argument parsing for every
+  subcommand changed, including `worker-proxy`, which the daemon re-execs
+  inside each namespace. Command bodies and their validation moved across
+  unchanged, and flags now also read from `VPNPOOLD_*` environment variables —
+  except `worker-proxy`, which ignores the environment by design.
+- **Conditional egress evidence.** `HealthEvidence` now distinguishes checks
+  that were performed from checks that passed, so expected-IP and uniqueness
+  are only required when configured. This narrows what a HEALTHY worker
+  asserts; see the README security status section.
+- **Native packaging and release signing** (2026-08-05). New deb/rpm/apk
+  artifacts, maintainer scripts that run as root at install time, a rendered
+  systemd unit, and a release workflow holding `id-token: write`.
+
+A release intended for production use should re-run this review over at least
+the namespace data path and the packaging scriptlets.
+
 ## Threat boundaries and conclusions
 
 The principal invariant is fail-closed egress: namespace application traffic

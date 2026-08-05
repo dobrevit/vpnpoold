@@ -43,9 +43,121 @@ jobs:
           DESTDIR="$destination" ./deploy/install.sh ./vpnpoold
           test -x "$destination/usr/local/sbin/vpnpoold"
           test -f "$destination/etc/systemd/system/vpnpoold.service"
+          # The manual install keeps /usr/local/sbin; the packaged unit must
+          # not leak into it.
+          grep -q '^ExecStart=/usr/local/sbin/vpnpoold daemon' \
+            "$destination/etc/systemd/system/vpnpoold.service"
       - name: Release archives
         run: SOURCE_DATE_EPOCH=1704067200 ./deploy/package.sh 0.0.0-ci ./dist
+      - name: Native packages
+        run: SOURCE_DATE_EPOCH=1704067200 ./deploy/package-native.sh 0.0.0-ci ./dist
+      - name: Packages are reproducible
+        run: |
+          SOURCE_DATE_EPOCH=1704067200 ./deploy/package-native.sh 0.0.0-ci ./dist-repeat
+          for package in ./dist/vpnpoold*.deb ./dist/vpnpoold*.rpm ./dist/vpnpoold*.apk; do
+            name="$(basename "$package")"
+            first="$(sha256sum "$package" | cut -d' ' -f1)"
+            second="$(sha256sum "./dist-repeat/$name" | cut -d' ' -f1)"
+            if [ "$first" != "$second" ]; then
+              echo "package $name is not reproducible" >&2
+              exit 1
+            fi
+          done
+          rm -rf ./dist-repeat
       - uses: actions/upload-artifact@v4
         with:
           name: linux-release-smoke
           path: dist/
+
+  # Install each package format in its own distribution container. The
+  # directory modes asserted here are load-bearing: configuration validation
+  # refuses profiles in a group- or other-writable directory, so a package that
+  # ships /etc/vpnpoold as 0755 yields a daemon that will not start, and that
+  # failure would otherwise surface only on an operator's host.
+  #
+  # Injection safety: the only values reaching a shell are matrix constants
+  # defined in this file, and they are passed through `env:` rather than
+  # interpolated into `run:`. No `${{ }}` expression appears inside any script
+  # below, and no event payload field is read anywhere in this workflow.
+  packages:
+    runs-on: ubuntu-latest
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Installed through each distribution's package manager rather than a
+          # low-level --nodeps install, so the per-format dependency names are
+          # verified to actually resolve: rpm needs "iproute" where deb and apk
+          # need "iproute2".
+          - format: deb
+            image: debian:12
+            update: apt-get update -qq
+            install: apt-get install -y --no-install-recommends
+          - format: rpm
+            image: fedora:40
+            update: "true"
+            install: dnf install -y
+          - format: apk
+            image: alpine:3.20
+            update: apk update
+            install: apk add --allow-untrusted
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-release-smoke
+          path: dist
+      - name: Install and verify
+        env:
+          IMAGE: ${{ matrix.image }}
+          FORMAT: ${{ matrix.format }}
+          UPDATE: ${{ matrix.update }}
+          INSTALL: ${{ matrix.install }}
+        run: |
+          cat > verify.sh <<'SCRIPT'
+          set -eu
+          package="$(ls /packages/vpnpoold*."$FORMAT" | grep -E 'amd64|x86_64' | head -1)"
+          echo "installing $package"
+          $UPDATE >/dev/null
+          $INSTALL "$package"
+
+          test -x /usr/sbin/vpnpoold
+          /usr/sbin/vpnpoold version
+          test -f /usr/lib/systemd/system/vpnpoold.service
+          grep -q '^ExecStart=/usr/sbin/vpnpoold daemon' \
+            /usr/lib/systemd/system/vpnpoold.service
+          test -f /usr/lib/tmpfiles.d/vpnpoold.conf
+          test -f /usr/share/bash-completion/completions/vpnpoold
+
+          # The unit must be installed but never enabled by a scriptlet.
+          if [ -e /etc/systemd/system/multi-user.target.wants/vpnpoold.service ]; then
+            echo "package enabled the service; it must stay inert" >&2
+            exit 1
+          fi
+          # No live configuration: the unit's ConditionPathExists keeps the
+          # service from starting until the operator writes one.
+          if [ -e /etc/vpnpoold/vpnpoold.yaml ]; then
+            echo "package shipped a live configuration file" >&2
+            exit 1
+          fi
+          test -f /etc/vpnpoold/vpnpoold.yaml.example
+
+          check_mode() {
+            actual="$(stat -c '%a' "$1")"
+            if [ "$actual" != "$2" ]; then
+              echo "$1 has mode $actual, want $2" >&2
+              exit 1
+            fi
+          }
+          check_mode /etc/vpnpoold 750
+          check_mode /etc/vpnpoold/profiles 700
+          check_mode /etc/vpnpoold/credentials 700
+          check_mode /etc/netns 755
+
+          echo "$FORMAT package layout verified"
+          SCRIPT
+          docker run --rm \
+            -v "$PWD/dist:/packages:ro" \
+            -v "$PWD/verify.sh:/verify.sh:ro" \
+            -e FORMAT -e UPDATE -e INSTALL \
+            "$IMAGE" sh /verify.sh

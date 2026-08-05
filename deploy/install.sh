@@ -55,7 +55,9 @@ fi
 mv "$stage" "$target"
 trap - EXIT HUP INT TERM
 
-install -m 0644 "$project_directory/deploy/systemd/vpnpoold.service" \
+"$project_directory/deploy/render-unit.sh" \
+	/usr/local/sbin \
+	/usr/local/share/doc/vpnpoold \
 	"$unitdir/vpnpoold.service"
 install -m 0644 "$project_directory/deploy/tmpfiles/vpnpoold.conf" \
 	"$tmpfilesdir/vpnpoold.conf"

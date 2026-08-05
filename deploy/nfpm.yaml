@@ -1,0 +1,129 @@
+# nfpm package definition template. deploy/package-native.sh substitutes
+# @VERSION@, @ARCH@ and @STAGE@ and writes a rendered copy before invoking
+# nfpm. Placeholders rather than ${ENV} because nfpm does not expand environment
+# variables in this file.
+#
+# Directory modes below are load-bearing, not cosmetic. internal/config
+# validation refuses a profile, credentials or users file whose immediate
+# directory is group- or other-writable, so a package that ships /etc/vpnpoold
+# with the usual 0755 produces a daemon that will not start.
+name: vpnpoold
+arch: @ARCH@
+platform: linux
+version: @VERSION@
+section: net
+priority: optional
+maintainer: Martin Dobrev <martin@dobrev.eu>
+description: |
+  Isolated OpenVPN egress pool with a single SOCKS5 dispatcher.
+  Runs each OpenVPN client profile in its own Linux network namespace behind a
+  fail-closed nftables kill switch, and exposes the healthy exits through one
+  host-side SOCKS5 dispatcher.
+vendor: dobrevit
+homepage: https://github.com/dobrevit/vpnpoold
+license: MIT
+
+# File timestamps come from SOURCE_DATE_EPOCH, which the driver script exports.
+# It is not set here: nfpm parses mtime as a timestamp before expanding
+# environment variables, so a ${...} placeholder in this field fails to parse.
+
+depends:
+  - nftables
+  - openvpn
+overrides:
+  deb:
+    depends:
+      - iproute2
+      - nftables
+      - openvpn
+  rpm:
+    depends:
+      - iproute
+      - nftables
+      - openvpn
+  apk:
+    depends:
+      - iproute2
+      - nftables
+      - openvpn
+
+contents:
+  - src: @STAGE@/vpnpoold
+    dst: /usr/sbin/vpnpoold
+    file_info:
+      mode: 0755
+
+  - src: @STAGE@/vpnpoold.service
+    dst: /usr/lib/systemd/system/vpnpoold.service
+    file_info:
+      mode: 0644
+  - src: deploy/tmpfiles/vpnpoold.conf
+    dst: /usr/lib/tmpfiles.d/vpnpoold.conf
+    file_info:
+      mode: 0644
+
+  # Shell completion is generated at package time from the command tree so it
+  # cannot drift from the flags it describes.
+  - src: @STAGE@/completion.bash
+    dst: /usr/share/bash-completion/completions/vpnpoold
+    file_info:
+      mode: 0644
+  - src: @STAGE@/completion.zsh
+    dst: /usr/share/zsh/site-functions/_vpnpoold
+    file_info:
+      mode: 0644
+  - src: @STAGE@/completion.fish
+    dst: /usr/share/fish/vendor_completions.d/vpnpoold.fish
+    file_info:
+      mode: 0644
+
+  # Only examples are shipped. The unit carries
+  # ConditionPathExists=/etc/vpnpoold/vpnpoold.yaml, so an installed package is
+  # inert until the operator writes a real configuration. Nothing here is a
+  # conffile, because no live configuration file is ever installed.
+  - src: configs/vpnpoold.example.yaml
+    dst: /etc/vpnpoold/vpnpoold.yaml.example
+    file_info:
+      mode: 0640
+  - src: configs/users.example.yaml
+    dst: /etc/vpnpoold/users.yaml.example
+    file_info:
+      mode: 0640
+
+  - src: README.md
+    dst: /usr/share/doc/vpnpoold/README.md
+    file_info:
+      mode: 0644
+  - src: LICENSE
+    dst: /usr/share/doc/vpnpoold/LICENSE
+    file_info:
+      mode: 0644
+  - src: docs
+    dst: /usr/share/doc/vpnpoold
+    type: tree
+    file_info:
+      mode: 0644
+
+  - dst: /etc/vpnpoold
+    type: dir
+    file_info:
+      mode: 0750
+  - dst: /etc/vpnpoold/profiles
+    type: dir
+    file_info:
+      mode: 0700
+  - dst: /etc/vpnpoold/credentials
+    type: dir
+    file_info:
+      mode: 0700
+  # ip netns exec reads /etc/netns/<namespace>/resolv.conf from here.
+  - dst: /etc/netns
+    type: dir
+    file_info:
+      mode: 0755
+
+# One postinstall and one preremove for every format; each detects install
+# versus upgrade from the arguments its packaging system passes.
+scripts:
+  postinstall: deploy/scripts/postinstall.sh
+  preremove: deploy/scripts/preremove.sh

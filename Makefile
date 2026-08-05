@@ -1,4 +1,4 @@
-.PHONY: all build test test-race vet format-check check check-host integration install dist clean
+.PHONY: all build test test-race vet format-check check check-host integration install dist packages clean
 
 VERSION ?= 0.1.0-dev
 COMMIT ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || printf unknown)
@@ -35,6 +35,9 @@ integration:
 
 install: build
 	./deploy/install.sh ./vpnpoold
+
+packages:
+	./deploy/package-native.sh "$(VERSION)" ./dist
 
 dist:
 	./deploy/package.sh "$(VERSION)" ./dist

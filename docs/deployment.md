@@ -69,6 +69,38 @@ upgraded binary stays an explicit operator action:
 sudo systemctl restart vpnpoold
 ```
 
+On Debian and Ubuntu that policy needs help from the distribution. `needrestart`
+is installed by default on Ubuntu Server and restarts any service whose binary
+changed during a package operation, which silently tears down every tunnel
+during a routine `apt upgrade`. The deb therefore ships
+`/etc/needrestart/conf.d/vpnpoold.conf`, excluding the service from automatic
+restart. Verified in the disposable VM: without the override an upgrade
+restarted the daemon; with it the process is left running on the old binary
+until an operator restarts it.
+
+### Migrating from a manual install
+
+`deploy/install.sh` writes the unit to `/etc/systemd/system/vpnpoold.service`
+and the binary to `/usr/local/sbin`. Packages use `/usr/lib/systemd/system` and
+`/usr/sbin`, and **`/etc/systemd/system` takes precedence**. Installing the
+package on a host that previously used the manual installer therefore leaves
+systemd running the old unit and the old binary, with no warning — the package
+appears installed and the service appears healthy while executing the previous
+build. Remove the manual install first:
+
+```sh
+sudo systemctl stop vpnpoold
+sudo rm -f /etc/systemd/system/vpnpoold.service \
+  /usr/local/sbin/vpnpoold /usr/local/sbin/vpnpoold.previous
+sudo systemctl daemon-reload
+```
+
+Then install the package and confirm what systemd actually resolved:
+
+```sh
+systemctl show vpnpoold -p FragmentPath -p ExecStart
+```
+
 Packages create `/etc/vpnpoold` as `0750` and `profiles`/`credentials` as
 `0700`. Those modes are required, not stylistic: configuration validation
 refuses a profile or credential file whose directory is group- or

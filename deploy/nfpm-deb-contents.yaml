@@ -1,0 +1,10 @@
+  # Debian and Ubuntu only. needrestart is installed by default on Ubuntu
+  # Server and restarts any service whose binary changed during a package
+  # operation, which would defeat this package's no-restart-on-upgrade policy
+  # and drop every tunnel. nfpm's per-packager overrides replace the whole
+  # contents list rather than extending it, so deploy/package-native.sh splices
+  # this fragment in for the deb build only.
+  - src: deploy/needrestart/vpnpoold.conf
+    dst: /etc/needrestart/conf.d/vpnpoold.conf
+    file_info:
+      mode: 0644

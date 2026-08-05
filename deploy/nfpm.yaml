@@ -104,6 +104,10 @@ contents:
     file_info:
       mode: 0644
 
+  # Replaced by deploy/nfpm-deb-contents.yaml for the deb build and removed for
+  # every other format.
+  #@DEB_ONLY_CONTENTS@
+
   - dst: /etc/vpnpoold
     type: dir
     file_info:

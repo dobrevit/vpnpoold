@@ -71,14 +71,23 @@ for architecture in amd64 arm64; do
 		cp "$temporary/completion.$shell" "$stage/completion.$shell"
 	done
 
-	rendered=$temporary/nfpm-$architecture.yaml
-	sed \
-		-e "s|@VERSION@|$version|g" \
-		-e "s|@ARCH@|$architecture|g" \
-		-e "s|@STAGE@|$stage|g" \
-		"$script_directory/nfpm.yaml" >"$rendered"
-
 	for format in deb rpm apk; do
+		rendered=$temporary/nfpm-$architecture-$format.yaml
+		# nfpm's per-packager overrides replace a field rather than extending
+		# it, so deb-only contents are spliced in here instead.
+		if [ "$format" = deb ]; then
+			splice="/@DEB_ONLY_CONTENTS@/r $script_directory/nfpm-deb-contents.yaml"
+		else
+			splice=
+		fi
+		sed \
+			${splice:+-e "$splice"} \
+			-e "/@DEB_ONLY_CONTENTS@/d" \
+			-e "s|@VERSION@|$version|g" \
+			-e "s|@ARCH@|$architecture|g" \
+			-e "s|@STAGE@|$stage|g" \
+			"$script_directory/nfpm.yaml" >"$rendered"
+
 		(
 			cd "$project_directory"
 			SOURCE_DATE_EPOCH=$source_epoch \

@@ -52,3 +52,61 @@ sudo systemctl reload vpnpoold
 
 The unit sends `SIGHUP`. A rejected candidate leaves the current generation
 running; inspect the journal for the validation or activation error.
+
+## Packages
+
+Releases ship `.deb`, `.rpm` and `.apk` packages for `amd64` and `arm64`
+alongside the tarballs. Packages install the binary to `/usr/sbin/vpnpoold` and
+the unit to `/usr/lib/systemd/system/`, where the manual `deploy/install.sh`
+path uses `/usr/local/sbin`. Both are rendered from one unit template,
+`deploy/systemd/vpnpoold.service.in`.
+
+A package never enables, starts, or restarts the service. Restarting drops
+every tunnel and terminates every established session, so activating an
+upgraded binary stays an explicit operator action:
+
+```sh
+sudo systemctl restart vpnpoold
+```
+
+Packages create `/etc/vpnpoold` as `0750` and `profiles`/`credentials` as
+`0700`. Those modes are required, not stylistic: configuration validation
+refuses a profile or credential file whose directory is group- or
+other-writable, so a permissive directory produces a daemon that will not
+start. Only `*.example` configurations are shipped, and the unit's
+`ConditionPathExists` keeps the service inert until an operator writes a real
+`/etc/vpnpoold/vpnpoold.yaml`.
+
+## Containers
+
+Running `vpnpoold` in a container is possible but provides no security benefit,
+and it is not a supported production path. systemd remains the supported
+deployment.
+
+`test/container/spike.sh` measures what a container actually requires. On a
+Debian 12 image with `--device /dev/net/tun` and
+`--sysctl net.ipv4.ip_forward=1`:
+
+| Capabilities | Result |
+|---|---|
+| `NET_ADMIN`, `SYS_ADMIN` | `ip netns add` **fails** — the host's container AppArmor profile denies the bind mount |
+| the same, plus `--security-opt apparmor=unconfined` | every check passes: namespace creation, `ip netns exec`, veth into the namespace, `nft -f -`, and the forwarding sysctl |
+
+So a container that can run this daemon needs `CAP_SYS_ADMIN`, `/dev/net/tun`,
+and AppArmor confinement lifted. `CAP_SYS_ADMIN` together with the ability to
+mount is a realistic escape path, which means such a container isolates nothing
+that the daemon's own network namespaces do not already isolate. Do not present
+it as a security boundary.
+
+If an image is ever built, prefer `--network host`. The daemon's singleton lock
+is an abstract Unix socket scoped to the *network* namespace and its
+`vpnpoold_host` nftables table is global to that namespace, so under
+`--network host` both behave exactly as designed and as tested. With a private
+container network namespace, two instances each believe they are the sole
+firewall owner and worker egress is NATed twice — a topology no existing test
+covers.
+
+The one genuine argument for an image is testing, not deployment: if these
+checks also hold on a GitHub-hosted runner, part of the acceptance matrix that
+`docs/testing.md` records as a manual disposable-VM gate could become a CI gate.
+Run the `container-spike` workflow manually to gather that evidence.

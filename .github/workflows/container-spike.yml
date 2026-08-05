@@ -1,0 +1,35 @@
+name: container-spike
+
+# Manual only. This answers a one-off feasibility question — whether a
+# GitHub-hosted runner can host vpnpoold's privileged operations in a
+# container — and there is no reason to burn CI minutes on it per push.
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+# Injection safety
+# ----------------
+# This workflow reads no event-payload field at all: there is no `${{ }}`
+# expression anywhere below, so nothing external reaches a shell. Every command
+# is a literal, and the only script it runs is checked into this repository.
+jobs:
+  spike:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Runner environment
+        run: |
+          set -eu
+          uname -sr
+          echo "AppArmor profiles loaded: $(ls /sys/kernel/security/apparmor/policy 2>/dev/null | wc -l)"
+          if [ -c /dev/net/tun ]; then
+            echo "/dev/net/tun present"
+          else
+            echo "/dev/net/tun ABSENT"
+          fi
+          docker version --format '{{.Server.Version}}'
+      - name: Run the container spike
+        run: ./test/container/spike.sh

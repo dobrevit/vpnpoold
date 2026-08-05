@@ -38,6 +38,14 @@ updates:
       - ci
       - dependencies
     groups:
+      # upload-artifact and download-artifact are version-coupled: a download
+      # action cannot always read an artifact written by a different major.
+      # Bumping them in separate pull requests can leave CI with a pair that
+      # does not interoperate, so they move together or not at all.
+      artifact-actions:
+        patterns:
+          - actions/upload-artifact
+          - actions/download-artifact
       actions:
         update-types:
           - minor

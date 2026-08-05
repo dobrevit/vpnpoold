@@ -4,6 +4,8 @@ github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/dobrevit/microproxy v0.0.1 h1:+R8lifU4fg4Nu/A1jbKHS0QCfFh+J8mhCR+b50vAx6Q=
 github.com/dobrevit/microproxy v0.0.1/go.mod h1:x+zu4SxBmS9onrYt2wJE2TJ/L5bJmOkGI34Orui9EME=
+github.com/dobrevit/microproxy v0.0.3 h1:3QNau2KbCBVqQp+D/tOERC8qoXw+PD2+dzcO6ZrPUuY=
+github.com/dobrevit/microproxy v0.0.3/go.mod h1:x+zu4SxBmS9onrYt2wJE2TJ/L5bJmOkGI34Orui9EME=
 github.com/elazarl/goproxy v1.8.5 h1:33R3Q6geBd2PHmjEI82s3dQWSoBKjTktg4YAFXutIoY=
 github.com/elazarl/goproxy v1.8.5/go.mod h1:b5xm6W48AUHNpRTCvlnd0YVh+JafCCtsLsJZvvNTz+E=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=

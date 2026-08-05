@@ -3,7 +3,7 @@ module github.com/dobrevit/vpnpoold
 go 1.26
 
 require (
-	github.com/dobrevit/microproxy v0.0.1
+	github.com/dobrevit/microproxy v0.0.3
 	golang.org/x/crypto v0.54.0
 	gopkg.in/yaml.v3 v3.0.1
 )

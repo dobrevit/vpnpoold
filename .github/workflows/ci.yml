@@ -127,7 +127,7 @@ jobs:
             update: apk update
             install: apk add --allow-untrusted
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: linux-release-smoke
           path: dist

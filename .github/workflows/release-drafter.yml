@@ -1,0 +1,51 @@
+name: release-drafter
+
+on:
+  push:
+    branches: [main]
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+
+# No permissions by default; each job requests exactly what it needs.
+permissions: {}
+
+# This workflow deliberately contains no `run:` steps. Every value it handles
+# (PR titles, branch names, commit messages) is attacker-controlled on a fork
+# pull request, and there is no shell here for such a value to be interpolated
+# into. Keep it that way: if a shell step ever becomes necessary, pass the
+# value through `env:` and quote it, never `${{ }}` inside `run:`.
+jobs:
+  # Redraft the next release from the commits merged into main.
+  draft:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - uses: release-drafter/release-drafter@v6
+        with:
+          config-name: release-drafter.yml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Label pull requests, including those from forks.
+  #
+  # SECURITY: pull_request_target runs in the base-repository context with a
+  # writable token. This job must never check out, build, or execute anything
+  # from the pull request head. It has no checkout step for exactly that
+  # reason, and holds only the labelling permission it needs. Do not add a
+  # checkout, a build step, or any action that consumes PR-authored files.
+  label:
+    if: github.event_name == 'pull_request_target'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: release-drafter/release-drafter@v6
+        with:
+          config-name: release-drafter.yml
+          disable-releaser: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

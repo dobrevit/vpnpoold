@@ -1,0 +1,110 @@
+name-template: "v$RESOLVED_VERSION"
+tag-template: "v$RESOLVED_VERSION"
+
+categories:
+  - title: "Security"
+    labels:
+      - security
+      - invariant
+  - title: "Configuration schema"
+    labels:
+      - schema
+  - title: "Features"
+    labels:
+      - feature
+      - enhancement
+  - title: "Fixes"
+    labels:
+      - fix
+      - bug
+  - title: "Build and packaging"
+    labels:
+      - build
+      - packaging
+      - ci
+  - title: "Tests"
+    labels:
+      - test
+  - title: "Documentation"
+    labels:
+      - docs
+
+exclude-labels:
+  - skip-changelog
+
+change-template: "- $TITLE (#$NUMBER)"
+change-title-escapes: '\<*_&`#@'
+
+version-resolver:
+  major:
+    labels:
+      - breaking
+      - schema
+  minor:
+    labels:
+      - feature
+      - enhancement
+  patch:
+    labels:
+      - fix
+      - bug
+      - build
+      - packaging
+      - ci
+      - test
+      - docs
+      - security
+  default: patch
+
+autolabeler:
+  - label: security
+    title:
+      - '/^(feat|fix)(\(.+\))?!?:.*(kill switch|fail.closed|firewall|leak|invariant|credential|secret)/i'
+  - label: schema
+    title:
+      - '/^\w+(\(.+\))?!?:.*(config schema|schema version)/i'
+  - label: breaking
+    title:
+      - '/^\w+(\(.+\))?!:/'
+  - label: feature
+    title:
+      - '/^feat(\(.+\))?!?:/'
+  - label: fix
+    title:
+      - '/^fix(\(.+\))?!?:/'
+  - label: build
+    title:
+      - '/^(build|chore)(\(.+\))?!?:/'
+  - label: ci
+    title:
+      - '/^ci(\(.+\))?!?:/'
+  - label: test
+    title:
+      - '/^test(\(.+\))?!?:/'
+  - label: docs
+    title:
+      - '/^docs(\(.+\))?!?:/'
+
+template: |
+  $CHANGES
+
+  ## Verifying this release
+
+  Every archive and package is accompanied by `SHA256SUMS`:
+
+  ```sh
+  sha256sum -c SHA256SUMS
+  ```
+
+  ## Before deploying
+
+  `vpnpoold` is a root-privileged, Linux-only daemon. Its privileged paths —
+  namespace and veth lifecycle, the nftables kill switch, and OpenVPN
+  supervision — are exercised by a disposable-VM acceptance suite, not by CI.
+  Validate this release on your own target distribution and VPN provider
+  before production use, as described in `docs/testing.md`.
+
+  Configuration schema version: `1`. The binary refuses both older and newer
+  schemas rather than guessing at a migration.
+
+  **Full changelog**: https://github.com/$OWNER/$REPOSITORY/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION

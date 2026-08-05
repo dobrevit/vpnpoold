@@ -229,3 +229,25 @@ full egress-verification coverage for that path.
 
 See `docs/security-review.md` for the focused review evidence and residual
 risks. This is an internal engineering review, not an independent audit.
+
+## Contributing
+
+Contributions are welcome. Because this daemon runs as root and its failure
+mode is traffic leaving through the wrong interface, the bar is higher than
+usual in three specific places:
+
+- a set of non-negotiable security invariants, chief among them that worker
+  traffic must never fall back to the host WAN route, and that a worker is
+  unavailable until tunnel, route, proxy and public-IP checks all succeed;
+- no shell — `ip`, `nft` and `openvpn` are executed with argument vectors
+  through interfaces that unit tests assert against;
+- privileged tests run only in a disposable VM, and their results are never
+  reported as passing unless they were actually executed.
+
+Read [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md) before opening a pull
+request. It lists the invariants in full, the test commands CI enforces, the
+commit-message convention that drives release notes, and the schema-migration
+requirement. Contributors are recorded in [CONTRIBUTORS](CONTRIBUTORS).
+
+Report security defects through GitHub's private vulnerability reporting rather
+than a public issue.
